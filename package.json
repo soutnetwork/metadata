@@ -1,0 +1,16 @@
+{
+  "name": "sout-network-metadata",
+  "version": "2.0.0",
+  "description": "Internal distributor lookup with admin + invited-user access",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.22.2",
+    "jsonwebtoken": "^9.0.3",
+    "playwright": "^1.45.0"
+  }
+}
