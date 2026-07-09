@@ -8,6 +8,19 @@ const { getTrackMetadata, normalizeTrack } = require('./src/spotify');
 const lookupModule = require('./src/lookup');
 const auth = require('./src/auth');
 
+// Never let a single bad lookup crash the process for everyone.
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', (e && e.message) || e));
+process.on('uncaughtException', (e) => console.error('uncaughtException:', (e && e.message) || e));
+
+// Cap concurrent heavy lookups so many users can't overload a small server.
+const MAX_CONCURRENT = 6;
+let active = 0;
+const waiters = [];
+function acquire() {
+  return new Promise((res) => { if (active < MAX_CONCURRENT) { active++; res(); } else waiters.push(res); });
+}
+function release() { active--; if (waiters.length) { active++; waiters.shift()(); } }
+
 const app = express();
 app.set('trust proxy', 1); // behind Nginx
 app.use(express.json({ limit: '2mb' }));
@@ -21,7 +34,7 @@ const view = (name) => path.join(__dirname, 'views', name);
 // first-run: until an admin exists, send everyone to /setup
 app.use((req, res, next) => {
   if (auth.hasAnyAdmin()) return next();
-  if (req.path === '/setup' || req.path === '/api/setup' || req.path.startsWith('/assets')) return next();
+  if (req.path === '/setup' || req.path === '/api/setup' || req.path === '/healthz' || req.path.startsWith('/assets')) return next();
   if (req.path.startsWith('/api/')) return res.status(403).json({ ok: false, error: 'Setup required.' });
   return res.redirect('/setup');
 });
@@ -122,13 +135,15 @@ app.get('/admin', auth.requireAdmin, (req, res) => res.sendFile(view('admin.html
 app.get('/api/me', auth.requireAuth, (req, res) => res.json({ ok: true, email: req.user.email, role: req.user.role }));
 
 app.post('/api/lookup', auth.requireAuth, async (req, res) => {
+  await acquire();
   try {
     const { url } = req.body || {};
     const parsed = parseSpotifyInput(url);
     if (parsed.type !== 'track') return res.status(400).json({ ok: false, error: 'Please enter a track link.' });
     const meta = await getTrackMetadata(parsed.gid);
     res.json(buildResult(meta));
-  } catch (e) { res.status(400).json({ ok: false, error: friendly(e.message) }); }
+  } catch (e) { res.status(400).json({ ok: false, error: friendly(e) }); }
+  finally { release(); }
 });
 
 // admin-only manual fallback (kept generic; only the admin ever sees it)
@@ -170,10 +185,19 @@ app.get('/api/admin/stats', auth.requireAdmin, (req, res) => res.json({ ok: true
 app.post('/api/admin/reload', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.reload() }));
 
 // friendly error text (never reveal internals)
-function friendly(msg) {
-  if (/token|Spotify|401|403/i.test(msg)) return 'Service is busy right now. Please try again in a moment.';
-  return msg || 'Something went wrong.';
+function friendly(e) {
+  const code = e && e.code;
+  const msg = (e && e.message) || '';
+  if (code === 'NO_BROWSER') return 'Automatic lookup is not ready yet on the server.';
+  if (code === 'TIMEOUT' || code === 'TOKEN_FAIL' || code === 'AUTH' || code === 'HTTP' || /token|Spotify|401|403/i.test(msg))
+    return 'Service is busy right now. Please try again in a moment.';
+  if (code === 'BAD' || msg === 'incomplete') return 'Could not read this track. Please try again.';
+  if (msg && /track link|album/i.test(msg)) return msg;
+  return 'Something went wrong. Please try again.';
 }
+
+// health check
+app.get('/healthz', (req, res) => res.json({ ok: true, active }));
 
 // first-run redirect helper
 app.use((req, res) => {
