@@ -44,6 +44,7 @@ async function fetchFreshToken() {
 
       page.goto('https://open.spotify.com/', { waitUntil: 'domcontentloaded', timeout: 45000 })
         .then(async () => {
+          // fallback: read token from the page's embedded session config
           if (!done) {
             const cfg = await page.evaluate(() => {
               try {
@@ -57,6 +58,7 @@ async function fetchFreshToken() {
         })
         .catch(() => {});
 
+      // hard cap so we never hang
       setTimeout(() => finish(null), 30000);
     });
 

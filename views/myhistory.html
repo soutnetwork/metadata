@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>My history — Sout Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/assets/style.css"/>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><img src="/assets/logo.svg" class="logo" alt=""/><span><small>Sout Network</small>Metadata</span></div>
+  <div class="nav">
+    <span class="who" id="who"></span>
+    <a href="/">Lookup</a>
+    <a href="/admin" id="adminLink" style="display:none">Admin</a>
+    <a href="#" id="logout">Sign out</a>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="head">
+    <h1>My searches</h1>
+    <div class="sub" id="meta">Your recent lookups.</div>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr><th>When</th><th>Track</th><th>Distributor</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="3" class="small" style="color:var(--muted)">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function fmt(iso){try{return new Date(iso).toLocaleString()}catch(_){return iso}}
+async function post(p,b){const r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return r.json()}
+
+fetch('/api/me').then(r=>r.json()).then(d=>{if(d.ok){$('who').textContent=d.email;if(d.role==='admin')$('adminLink').style.display=''}});
+$('logout').addEventListener('click',async e=>{e.preventDefault();await post('/api/logout');location.href='/login'});
+
+fetch('/api/my-history?limit=300').then(r=>r.json()).then(d=>{
+  if(!d.ok)return;
+  $('meta').textContent = d.total+' searches';
+  $('rows').innerHTML = d.items.map(x=>`<tr>
+    <td class="small" style="color:var(--muted)">${fmt(x.at)}</td>
+    <td>${esc((x.track&&x.track.name)||'—')}<div class="small" style="color:var(--muted)">${esc((x.track&&x.track.artist)||'')}</div></td>
+    <td>${x.found?esc(x.distributor):'<span style="color:var(--muted)">not found</span>'}</td>
+  </tr>`).join('') || '<tr><td colspan="3" class="small" style="color:var(--muted)">No searches yet.</td></tr>';
+});
+</script>
+</body>
+</html>

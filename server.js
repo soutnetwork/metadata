@@ -6,32 +6,27 @@ const path = require('path');
 const { parseSpotifyInput } = require('./src/spotifyId');
 const { getTrackMetadata, normalizeTrack } = require('./src/spotify');
 const lookupModule = require('./src/lookup');
+const history = require('./src/history');
+const pending = require('./src/pending');
 const auth = require('./src/auth');
 
-// Never let a single bad lookup crash the process for everyone.
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', (e && e.message) || e));
 process.on('uncaughtException', (e) => console.error('uncaughtException:', (e && e.message) || e));
 
-// Cap concurrent heavy lookups so many users can't overload a small server.
 const MAX_CONCURRENT = 6;
 let active = 0;
 const waiters = [];
-function acquire() {
-  return new Promise((res) => { if (active < MAX_CONCURRENT) { active++; res(); } else waiters.push(res); });
-}
+function acquire() { return new Promise((res) => { if (active < MAX_CONCURRENT) { active++; res(); } else waiters.push(res); }); }
 function release() { active--; if (waiters.length) { active++; waiters.shift()(); } }
 
 const app = express();
-app.set('trust proxy', 1); // behind Nginx
-app.use(express.json({ limit: '2mb' }));
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '4mb' }));
 app.use(cookieParser());
-
-// public assets only (css); protected HTML is served via guarded routes
 app.use('/assets', express.static(path.join(__dirname, 'public')));
 
 const view = (name) => path.join(__dirname, 'views', name);
 
-// first-run: until an admin exists, send everyone to /setup
 app.use((req, res, next) => {
   if (auth.hasAnyAdmin()) return next();
   if (req.path === '/setup' || req.path === '/api/setup' || req.path === '/healthz' || req.path.startsWith('/assets')) return next();
@@ -39,24 +34,16 @@ app.use((req, res, next) => {
   return res.redirect('/setup');
 });
 
-// tiny login rate-limiter (per IP)
-const attempts = new Map();
-function tooMany(ip) {
-  const rec = attempts.get(ip);
-  if (!rec) return false;
-  if (Date.now() - rec.ts > 15 * 60 * 1000) { attempts.delete(ip); return false; }
-  return rec.count >= 8;
+function coverFileId(imageUrl) {
+  if (!imageUrl) return null;
+  const m = String(imageUrl).match(/image\/([a-z0-9]+)/i);
+  return m ? m[1] : null;
 }
-function bumpAttempt(ip) {
-  const rec = attempts.get(ip) || { count: 0, ts: Date.now() };
-  rec.count += 1; rec.ts = Date.now();
-  attempts.set(ip, rec);
-}
-function clearAttempts(ip) { attempts.delete(ip); }
 
-// ---------- result builder (no method fields leak to client) ----------
-function buildResult(meta) {
+// perms decide what codes are visible
+function buildResult(meta, perms) {
   const res = lookupModule.lookup(meta.licensorUuid);
+  const seeCodes = perms ? perms.seeCodes : true;
   return {
     ok: true,
     found: res.found,
@@ -65,26 +52,19 @@ function buildResult(meta) {
     track: {
       name: meta.name,
       artist: meta.artist,
-      isrc: meta.isrc,
-      upc: meta.upc,
+      isrc: seeCodes ? meta.isrc : null,
+      upc: seeCodes ? meta.upc : null,
       date: meta.date,
       label: meta.label,
       image: meta.image,
+      coverFile: coverFileId(meta.image),
     },
   };
 }
 
 // ===================== PUBLIC AUTH PAGES =====================
-app.get('/login', (req, res) => {
-  if (auth.readUser(req)) return res.redirect('/');
-  res.sendFile(view('login.html'));
-});
-
-app.get('/setup', (req, res) => {
-  if (auth.hasAnyAdmin()) return res.redirect('/login');
-  res.sendFile(view('setup.html'));
-});
-
+app.get('/login', (req, res) => { if (auth.readUser(req)) return res.redirect('/'); res.sendFile(view('login.html')); });
+app.get('/setup', (req, res) => { if (auth.hasAnyAdmin()) return res.redirect('/login'); res.sendFile(view('setup.html')); });
 app.get('/invite/:token', (req, res) => {
   const inv = auth.getInvite(req.params.token);
   if (!inv) return res.sendFile(view('invite-invalid.html'));
@@ -98,20 +78,16 @@ app.post('/api/setup', (req, res) => {
     const { email, password } = req.body || {};
     if (!password || password.length < 8) return res.status(400).json({ ok: false, error: 'Password must be at least 8 characters.' });
     auth.createUser({ email, password, role: 'admin' });
-    const u = auth.findUserByEmail(email);
-    auth.issueCookie(res, u);
+    auth.issueCookie(res, auth.findUserByEmail(email));
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 
 app.post('/api/login', (req, res) => {
-  const ip = req.ip;
-  if (tooMany(ip)) return res.status(429).json({ ok: false, error: 'Too many attempts. Try again in a few minutes.' });
   const { email, password } = req.body || {};
-  const u = auth.verifyLogin(email, password);
-  if (!u) { bumpAttempt(ip); return res.status(401).json({ ok: false, error: 'Incorrect email or password.' }); }
-  clearAttempts(ip);
-  auth.issueCookie(res, u);
+  const r = auth.verifyLogin(email, password, req.ip);
+  if (!r.ok) return res.status(r.locked ? 423 : 401).json({ ok: false, error: r.error });
+  auth.issueCookie(res, r.user);
   res.json({ ok: true });
 });
 
@@ -121,18 +97,24 @@ app.post('/api/accept-invite', (req, res) => {
   try {
     const { token, password } = req.body || {};
     const email = auth.acceptInvite(token, password);
-    const u = auth.findUserByEmail(email);
-    auth.issueCookie(res, u);
+    auth.issueCookie(res, auth.findUserByEmail(email));
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 
 // ===================== PROTECTED PAGES =====================
 app.get('/', auth.requireAuth, (req, res) => res.sendFile(view('index.html')));
+app.get('/history', auth.requireAuth, (req, res) => res.sendFile(view('myhistory.html')));
 app.get('/admin', auth.requireAdmin, (req, res) => res.sendFile(view('admin.html')));
 
-// ===================== TOOL API (auth required) =====================
-app.get('/api/me', auth.requireAuth, (req, res) => res.json({ ok: true, email: req.user.email, role: req.user.role }));
+// a user's own history (their searches only)
+app.get('/api/my-history', auth.requireAuth, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
+  res.json({ ok: true, ...history.list({ email: req.user.email, limit }) });
+});
+
+// ===================== TOOL API =====================
+app.get('/api/me', auth.requireAuth, (req, res) => res.json({ ok: true, email: req.user.email, role: req.user.role, perms: req.user.perms }));
 
 app.post('/api/lookup', auth.requireAuth, async (req, res) => {
   await acquire();
@@ -141,12 +123,37 @@ app.post('/api/lookup', auth.requireAuth, async (req, res) => {
     const parsed = parseSpotifyInput(url);
     if (parsed.type !== 'track') return res.status(400).json({ ok: false, error: 'Please enter a track link.' });
     const meta = await getTrackMetadata(parsed.gid);
-    res.json(buildResult(meta));
+    const result = buildResult(meta, req.user.perms);
+    history.log({
+      email: req.user.email, url, gid: parsed.gid,
+      track: { name: meta.name, artist: meta.artist },
+      distributor: result.distributor, found: result.found,
+    });
+    // unknown distributor -> collect it for the admin to identify
+    if (!result.found && meta.licensorUuid) {
+      pending.add({ uuid: meta.licensorUuid, track: { name: meta.name, artist: meta.artist }, url, email: req.user.email });
+    }
+    res.json(result);
   } catch (e) { res.status(400).json({ ok: false, error: friendly(e) }); }
   finally { release(); }
 });
 
-// admin-only manual fallback (kept generic; only the admin ever sees it)
+// cover image download (streamed with attachment header)
+app.get('/api/cover', auth.requireAuth, async (req, res) => {
+  try {
+    if (!req.user.perms.downloadCover) return res.status(403).json({ ok: false, error: 'Not allowed.' });
+    const file = (req.query.file || '').toString();
+    if (!/^[a-z0-9]{20,60}$/i.test(file)) return res.status(400).json({ ok: false, error: 'Bad request.' });
+    const r = await fetch(`https://i.scdn.co/image/${file}`);
+    if (!r.ok) return res.status(404).json({ ok: false, error: 'Cover not found.' });
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="cover-${file}.jpg"`);
+    res.send(buf);
+  } catch (e) { res.status(500).json({ ok: false, error: 'Download failed.' }); }
+});
+
+// admin-only manual fallback
 app.post('/api/lookup-manual', auth.requireAdmin, (req, res) => {
   try {
     let { payload } = req.body || {};
@@ -155,19 +162,27 @@ app.post('/api/lookup-manual', auth.requireAdmin, (req, res) => {
     const track = obj.track || obj;
     const meta = normalizeTrack(track, null);
     if (!meta.licensorUuid) return res.status(400).json({ ok: false, error: 'No usable data in this input.' });
-    res.json(buildResult(meta));
+    res.json(buildResult(meta, req.user.perms));
   } catch (e) { res.status(400).json({ ok: false, error: 'Could not read this input.' }); }
 });
 
-// ===================== ADMIN API =====================
+// ===================== ADMIN API: users & permissions =====================
 app.get('/api/admin/users', auth.requireAdmin, (req, res) => res.json({ ok: true, ...auth.listUsers() }));
 
 app.post('/api/admin/invite', auth.requireAdmin, (req, res) => {
   try {
-    const { email, role } = req.body || {};
-    const token = auth.createInvite({ email, role });
+    const { email, role, perms } = req.body || {};
+    const token = auth.createInvite({ email, role, perms });
     const base = `${req.protocol}://${req.get('host')}`;
     res.json({ ok: true, link: `${base}/invite/${token}` });
+  } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+
+app.post('/api/admin/permissions', auth.requireAdmin, (req, res) => {
+  try {
+    const { email, perms } = req.body || {};
+    auth.setPermissions(email, perms || {});
+    res.json({ ok: true });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 
@@ -181,13 +196,49 @@ app.post('/api/admin/remove', auth.requireAdmin, (req, res) => {
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 
+// ===================== ADMIN API: distributors =====================
+app.get('/api/admin/distributors', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.count(), items: lookupModule.listAll() }));
+
+app.get('/api/admin/pending', auth.requireAdmin, (req, res) => res.json({ ok: true, count: pending.count(), items: pending.list() }));
+app.post('/api/admin/pending/dismiss', auth.requireAdmin, (req, res) => { pending.remove((req.body || {}).uuid); res.json({ ok: true }); });
+
+app.post('/api/admin/distributors/add', auth.requireAdmin, (req, res) => {
+  try { const r = lookupModule.addEntry(req.body || {}); pending.remove(r.uuid); res.json({ ok: true, ...r }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.post('/api/admin/distributors/update', auth.requireAdmin, (req, res) => {
+  try { const { uuid, distributor, notes } = req.body || {}; res.json({ ok: true, ...lookupModule.updateEntry(uuid, { distributor, notes }) }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.post('/api/admin/distributors/delete', auth.requireAdmin, (req, res) => {
+  try { res.json({ ok: true, ...lookupModule.deleteEntry((req.body || {}).uuid) }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.post('/api/admin/distributors/bulk', auth.requireAdmin, (req, res) => {
+  try {
+    const body = req.body || {};
+    const input = body.rows || body.text || '';
+    const r = lookupModule.bulkAdd(input);
+    // clear any of these from the pending queue
+    pending.remove(lookupModule.listAll().map((x) => x.uuid));
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+
+// ===================== ADMIN API: history =====================
+app.get('/api/admin/history', auth.requireAdmin, (req, res) => {
+  const email = req.query.email ? String(req.query.email) : null;
+  const limit = Math.min(parseInt(req.query.limit, 10) || 200, 1000);
+  const offset = parseInt(req.query.offset, 10) || 0;
+  res.json({ ok: true, ...history.list({ email, limit, offset }) });
+});
+app.get('/api/admin/history/stats', auth.requireAdmin, (req, res) => res.json({ ok: true, ...history.stats() }));
+
 app.get('/api/admin/stats', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.count() }));
 app.post('/api/admin/reload', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.reload() }));
 
-// friendly error text (never reveal internals)
 function friendly(e) {
-  const code = e && e.code;
-  const msg = (e && e.message) || '';
+  const code = e && e.code; const msg = (e && e.message) || '';
   if (code === 'NO_BROWSER') return 'Automatic lookup is not ready yet on the server.';
   if (code === 'TIMEOUT' || code === 'TOKEN_FAIL' || code === 'AUTH' || code === 'HTTP' || /token|Spotify|401|403/i.test(msg))
     return 'Service is busy right now. Please try again in a moment.';
@@ -196,10 +247,8 @@ function friendly(e) {
   return 'Something went wrong. Please try again.';
 }
 
-// health check
 app.get('/healthz', (req, res) => res.json({ ok: true, active }));
 
-// first-run redirect helper
 app.use((req, res) => {
   if (!auth.hasAnyAdmin()) return res.redirect('/setup');
   res.redirect('/login');
