@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Distributor Lookup — Sout Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/assets/style.css"/>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><small>Sout Network</small>Metadata</div>
+  <div class="nav">
+    <span class="who" id="who"></span>
+    <a href="/admin" id="adminLink" style="display:none">Admin</a>
+    <a href="#" id="logout">Sign out</a>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="head">
+    <h1>Distributor Lookup</h1>
+    <div class="sub">Paste a track link to see its distributor, release date, UPC and ISRC.</div>
+  </div>
+
+  <div class="card">
+    <label class="field" for="url">Track link</label>
+    <div class="row">
+      <input id="url" type="text" dir="ltr" placeholder="https://open.spotify.com/track/..."/>
+      <button id="go">Look up</button>
+    </div>
+    <div class="status" id="status"></div>
+
+    <!-- admin-only fallback, hidden by default -->
+    <div id="advWrap" style="display:none">
+      <div class="divider"></div>
+      <div class="toggle" style="font-size:13px"><a id="advToggle">Advanced input ›</a></div>
+      <div id="adv" style="display:none;margin-top:12px">
+        <label class="field" for="payload">Paste captured data</label>
+        <textarea id="payload" placeholder="Paste here"></textarea>
+        <div class="row" style="margin-top:10px"><button id="goAdv" class="ghost">Process</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="result" id="result"></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const statusEl=$('status');
+function setStatus(m,e){statusEl.textContent=m||'';statusEl.className='status'+(e?' err':'')}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function chip(v){return v?`<span class="chip">${esc(v)}</span>`:`<span class="chip empty">—</span>`}
+
+function render(d){
+  const res=$('result'),t=d.track||{},found=d.found;
+  const dist=found?d.distributor:'Not available';
+  const head=found?'Distributor found':'No distributor information available';
+  const art=t.image?`<img class="art" src="${esc(t.image)}" alt="" onerror="this.style.display='none'"/>`:`<div class="art"></div>`;
+  const subs=(found&&d.subLabels&&d.subLabels.length)
+    ?`<div class="subs">May also appear as: <b>${esc(d.subLabels.join(', '))}</b></div>`:'';
+  res.innerHTML=`
+    <div class="panel">
+      <div>
+        <div class="title-row"><span class="dot ${found?'':'warn'}"></span><span class="found-label">${head}</span></div>
+        <div class="track-name">${esc(t.name||'—')}</div>
+        <div class="track-artist">${esc(t.artist||'')}</div>
+        <div class="grid2">
+          <div class="cell"><div class="k">Distributor</div><span class="chip big">${esc(dist)}</span></div>
+          <div class="cell"><div class="k">Release Date</div>${chip(t.date)}</div>
+          <div class="cell"><div class="k">UPC</div>${chip(t.upc)}</div>
+          <div class="cell"><div class="k">ISRC</div>${chip(t.isrc)}</div>
+        </div>
+        ${subs}
+      </div>
+      ${art}
+    </div>`;
+  res.classList.add('show');
+}
+
+async function post(p,b){const r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});return r.json()}
+
+async function runAuto(){
+  const url=$('url').value.trim();
+  if(!url){setStatus('Enter a track link first.',true);return}
+  $('go').disabled=true; setStatus('Looking up… (first request may take a few seconds)');
+  try{const d=await post('/api/lookup',{url});
+    if(!d.ok)setStatus(d.error||'Something went wrong.',true);else{setStatus('');render(d)}}
+  catch(_){setStatus('Server not responding.',true)}
+  finally{$('go').disabled=false}
+}
+async function runAdv(){
+  const payload=$('payload').value.trim();
+  if(!payload){setStatus('Nothing to process.',true);return}
+  $('goAdv').disabled=true; setStatus('Processing…');
+  try{const d=await post('/api/lookup-manual',{payload});
+    if(!d.ok)setStatus(d.error||'Something went wrong.',true);else{setStatus('');render(d)}}
+  catch(_){setStatus('Something went wrong.',true)}
+  finally{$('goAdv').disabled=false}
+}
+
+$('go').addEventListener('click',runAuto);
+$('url').addEventListener('keydown',e=>{if(e.key==='Enter')runAuto()});
+$('logout').addEventListener('click',async e=>{e.preventDefault();await post('/api/logout',{});location.href='/login'});
+
+// who am I + reveal admin bits
+fetch('/api/me').then(r=>r.json()).then(d=>{
+  if(!d.ok)return;
+  $('who').textContent=d.email;
+  if(d.role==='admin'){
+    $('adminLink').style.display='';
+    $('advWrap').style.display='';
+    $('advToggle').addEventListener('click',()=>{const a=$('adv');a.style.display=a.style.display==='none'?'block':'none'});
+    $('goAdv').addEventListener('click',runAdv);
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Accept invite — Sout Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/assets/style.css"/>
+</head>
+<body>
+<div class="center">
+  <div class="narrow" style="width:100%">
+    <div class="head" style="text-align:center">
+      <div class="brandline">Sout Network</div>
+      <h1>Set your password</h1>
+      <div class="sub">Create a password to activate your account.</div>
+    </div>
+    <div class="card">
+      <label class="field" for="password">Password</label>
+      <input id="password" type="password" autocomplete="new-password" placeholder="At least 8 characters"/>
+      <div class="mt"></div>
+      <label class="field" for="confirm">Confirm password</label>
+      <input id="confirm" type="password" autocomplete="new-password" placeholder="Repeat password"/>
+      <div class="mt"></div>
+      <button id="go" class="block">Activate account</button>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const token=location.pathname.split('/').pop();
+function setStatus(m,e){const s=$('status');s.textContent=m||'';s.className='status'+(e?' err':'')}
+async function go(){
+  const password=$('password').value, confirm=$('confirm').value;
+  if(password.length<8){setStatus('Password must be at least 8 characters.',true);return}
+  if(password!==confirm){setStatus('Passwords do not match.',true);return}
+  $('go').disabled=true; setStatus('Activating…');
+  try{
+    const r=await fetch('/api/accept-invite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password})});
+    const d=await r.json();
+    if(d.ok){location.href='/'} else {setStatus(d.error||'Failed.',true);$('go').disabled=false}
+  }catch(_){setStatus('Server not responding.',true);$('go').disabled=false}
+}
+$('go').addEventListener('click',go);
+$('confirm').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+</script>
+</body>
+</html>

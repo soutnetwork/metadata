@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Set up admin — Sout Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/assets/style.css"/>
+</head>
+<body>
+<div class="center">
+  <div class="narrow" style="width:100%">
+    <div class="head" style="text-align:center">
+      <div class="brandline">Sout Network</div>
+      <h1>Create admin account</h1>
+      <div class="sub">This is a one-time step. You'll be the administrator.</div>
+    </div>
+    <div class="card">
+      <label class="field" for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@company.com"/>
+      <div class="mt"></div>
+      <label class="field" for="password">Password</label>
+      <input id="password" type="password" autocomplete="new-password" placeholder="At least 8 characters"/>
+      <div class="mt"></div>
+      <button id="go" class="block">Create account</button>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+function setStatus(m,e){const s=$('status');s.textContent=m||'';s.className='status'+(e?' err':'')}
+async function go(){
+  const email=$('email').value.trim(), password=$('password').value;
+  if(!email||password.length<8){setStatus('Enter an email and an 8+ character password.',true);return}
+  $('go').disabled=true; setStatus('Creating…');
+  try{
+    const r=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    const d=await r.json();
+    if(d.ok){location.href='/admin'} else {setStatus(d.error||'Failed.',true);$('go').disabled=false}
+  }catch(_){setStatus('Server not responding.',true);$('go').disabled=false}
+}
+$('go').addEventListener('click',go);
+$('password').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+</script>
+</body>
+</html>

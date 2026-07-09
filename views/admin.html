@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Admin — Sout Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/assets/style.css"/>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><small>Sout Network</small>Admin</div>
+  <div class="nav">
+    <span class="who" id="who"></span>
+    <a href="/">Lookup</a>
+    <a href="#" id="logout">Sign out</a>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="head">
+    <h1>Team access</h1>
+    <div class="sub">Invite people, manage accounts, and control who can use the tool.</div>
+  </div>
+
+  <!-- invite -->
+  <div class="card">
+    <h2>Invite someone</h2>
+    <div class="row">
+      <input id="invEmail" type="email" placeholder="person@company.com"/>
+      <select id="invRole" style="max-width:140px">
+        <option value="user">User</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button id="invGo">Create invite</button>
+    </div>
+    <div class="status" id="invStatus"></div>
+    <div id="linkWrap" style="display:none">
+      <div class="hint">Send this link to the person. It expires in 7 days.</div>
+      <div class="linkbox">
+        <input id="invLink" type="text" readonly/>
+        <button id="copyLink" class="ghost">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- users -->
+  <div class="card">
+    <h2>People</h2>
+    <table>
+      <thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="4" style="color:var(--muted)">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="hint" id="stats"></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function post(p,b){const r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});return r.json()}
+function setStatus(el,m,e,ok){el.textContent=m||'';el.className='status'+(e?' err':(ok?' ok':''))}
+
+let meEmail='';
+fetch('/api/me').then(r=>r.json()).then(d=>{if(d.ok){meEmail=d.email;$('who').textContent=d.email}});
+
+async function load(){
+  const d=await (await fetch('/api/admin/users')).json();
+  if(!d.ok)return;
+  const rows=[];
+  for(const u of d.users){
+    const isMe=u.email===meEmail;
+    rows.push(`<tr>
+      <td>${esc(u.email)}</td>
+      <td><span class="badge ${u.role}">${u.role}</span></td>
+      <td>active</td>
+      <td style="text-align:right">${isMe?'<span style="color:var(--muted);font-size:12px">you</span>':`<button class="danger" data-email="${esc(u.email)}">Remove</button>`}</td>
+    </tr>`);
+  }
+  for(const i of d.invites){
+    rows.push(`<tr>
+      <td>${esc(i.email)}</td>
+      <td><span class="badge ${i.role}">${i.role}</span></td>
+      <td><span class="badge pending">invite pending</span></td>
+      <td></td>
+    </tr>`);
+  }
+  $('rows').innerHTML=rows.join('')||'<tr><td colspan="4" style="color:var(--muted)">No one yet.</td></tr>';
+  $('rows').querySelectorAll('button.danger').forEach(b=>{
+    b.addEventListener('click',async()=>{
+      if(!confirm('Remove '+b.dataset.email+'?'))return;
+      const r=await post('/api/admin/remove',{email:b.dataset.email});
+      if(r.ok)load(); else alert(r.error||'Failed.');
+    });
+  });
+}
+
+$('invGo').addEventListener('click',async()=>{
+  const email=$('invEmail').value.trim(), role=$('invRole').value;
+  if(!email){setStatus($('invStatus'),'Enter an email.',true);return}
+  $('invGo').disabled=true; setStatus($('invStatus'),'Creating invite…');
+  const d=await post('/api/admin/invite',{email,role});
+  $('invGo').disabled=false;
+  if(!d.ok){setStatus($('invStatus'),d.error||'Failed.',true);return}
+  setStatus($('invStatus'),'Invite created.',false,true);
+  $('invEmail').value='';
+  $('linkWrap').style.display='block';
+  $('invLink').value=d.link;
+  load();
+});
+$('copyLink').addEventListener('click',()=>{
+  $('invLink').select();
+  navigator.clipboard.writeText($('invLink').value).then(()=>{$('copyLink').textContent='Copied';setTimeout(()=>$('copyLink').textContent='Copy',1500)});
+});
+$('logout').addEventListener('click',async e=>{e.preventDefault();await post('/api/logout',{});location.href='/login'});
+
+fetch('/api/admin/stats').then(r=>r.json()).then(d=>{if(d.ok)$('stats').textContent=d.count+' distributors in the reference set.'});
+load();
+</script>
+</body>
+</html>

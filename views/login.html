@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Sign in — Sout Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/assets/style.css"/>
+</head>
+<body>
+<div class="center">
+  <div class="narrow" style="width:100%">
+    <div class="head" style="text-align:center">
+      <div class="brandline">Sout Network</div>
+      <h1>Metadata</h1>
+      <div class="sub">Sign in to continue</div>
+    </div>
+    <div class="card">
+      <label class="field" for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@company.com"/>
+      <div class="mt"></div>
+      <label class="field" for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="••••••••"/>
+      <div class="mt"></div>
+      <button id="go" class="block">Sign in</button>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+function setStatus(m,e){const s=$('status');s.textContent=m||'';s.className='status'+(e?' err':'')}
+async function login(){
+  const email=$('email').value.trim(), password=$('password').value;
+  if(!email||!password){setStatus('Enter your email and password.',true);return}
+  $('go').disabled=true; setStatus('Signing in…');
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    const d=await r.json();
+    if(d.ok){location.href='/'} else {setStatus(d.error||'Sign in failed.',true);$('go').disabled=false}
+  }catch(_){setStatus('Server not responding.',true);$('go').disabled=false}
+}
+$('go').addEventListener('click',login);
+$('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+$('email').addEventListener('keydown',e=>{if(e.key==='Enter')$('password').focus()});
+</script>
+</body>
+</html>
