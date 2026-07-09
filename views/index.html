@@ -80,6 +80,7 @@ function render(d){
         <div class="track-artist">${esc(t.artist||'')}</div>
         <div class="grid2">
           <div class="cell"><div class="k">Distributor</div><span class="chip big">${esc(dist)}</span></div>
+          <div class="cell"><div class="k">Label</div><span class="chip" style="font-family:inherit;font-weight:600">${esc(t.label||'—')}</span></div>
           <div class="cell"><div class="k">Release Date</div>${chip(t.date)}</div>
           ${codes}
         </div>
