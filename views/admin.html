@@ -87,13 +87,23 @@
   <div class="pane" id="pane-requests">
     <div class="card">
       <h2>Service requests</h2>
-      <div class="small" style="margin-bottom:12px">Pending ones you can fill and approve. Everything ever submitted is kept here.</div>
-      <div style="display:flex;gap:8px;margin-bottom:14px">
+      <div class="small" style="margin-bottom:12px">Search, filter and browse everything ever submitted.</div>
+      <div class="row" style="margin-bottom:10px">
+        <input id="reqSearch" type="text" placeholder="Search by email…"/>
+        <select id="reqType" style="max-width:220px">
+          <option value="">All services</option>
+          <option value="copyright">Copyright / Strike</option>
+          <option value="youtube_owner">YouTube Channel Owner</option>
+          <option value="yt_distributor">YouTube → Distributor</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <button class="ghost reqFilter active" data-status="pending">Pending</button>
         <button class="ghost reqFilter" data-status="">All</button>
         <button class="ghost reqFilter" data-status="approved">Approved</button>
         <button class="ghost reqFilter" data-status="rejected">Rejected</button>
       </div>
+      <div id="reqCount" class="small" style="margin-bottom:10px"></div>
       <div id="reqList"><div class="small">Loading…</div></div>
     </div>
   </div>
@@ -170,15 +180,20 @@ function reqFieldsView(svc,t){
   return svc.fields.map(f=>`<b>${esc(f.label)}:</b> ${esc((t.fields&&t.fields[f.key])||'—')}`).join('<br>');
 }
 async function loadRequests(){
-  const q = reqStatus ? ('?status='+reqStatus) : '';
-  const d=await get('/api/admin/requests'+q); if(!d.ok)return;
+  const params=new URLSearchParams();
+  if(reqStatus)params.set('status',reqStatus);
+  const type=$('reqType')?$('reqType').value:''; if(type)params.set('type',type);
+  const email=$('reqSearch')?$('reqSearch').value.trim():''; if(email)params.set('email',email);
+  const qs=params.toString();
+  const d=await get('/api/admin/requests'+(qs?('?'+qs):'')); if(!d.ok)return;
   SERVICES=d.services||{};
   const badge=$('reqBadge');
   if(d.pending>0){badge.style.display='';badge.textContent=d.pending}else{badge.style.display='none'}
-  if(!d.items.length){$('reqList').innerHTML='<div class="small">Nothing here.</div>';return}
+  $('reqCount').textContent=d.items.length+' result'+(d.items.length===1?'':'s');
+  if(!d.items.length){$('reqList').innerHTML='<div class="small">Nothing matches.</div>';return}
   $('reqList').innerHTML=d.items.map(t=>{
     const svc=SERVICES[t.type]||{title:t.type,fields:[]};
-    const header=`<div style="margin-bottom:6px"><span class="badge admin">${esc(svc.title)}</span> <span class="small">${esc(t.email||'')} • ${fmtTime(t.createdAt)}</span> ${statusBadge(t.status)}</div>`;
+    const header=`<div style="margin-bottom:6px"><span class="badge admin">${esc(svc.title)}</span> <span class="small">From ${esc(t.email||'')} • ${fmtTime(t.createdAt)}</span> ${statusBadge(t.status)}</div>`;
     const link=`<a href="${esc(t.input)}" target="_blank" class="mono" style="font-size:12px;word-break:break-all">${esc(t.input)}</a>`;
     if(t.status==='pending'){
       const inputs=svc.fields.map(f=>`<div style="flex:1;min-width:150px"><div class="k" style="font-size:11px;color:var(--muted);margin-bottom:4px">${esc(f.label)}</div><input type="text" data-field="${esc(f.key)}" placeholder="${esc(f.label)}"/></div>`).join('');
@@ -191,7 +206,7 @@ async function loadRequests(){
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px">
       ${header}${link}
       <div class="small" style="margin-top:8px">${reqFieldsView(svc,t)}</div>
-      ${t.resolvedBy?`<div class="small" style="margin-top:6px;color:var(--muted)">by ${esc(t.resolvedBy)} • ${fmtTime(t.resolvedAt)}</div>`:''}
+      ${t.resolvedBy?`<div class="small" style="margin-top:6px;color:var(--muted)">Answered by ${esc(t.resolvedBy)} • ${fmtTime(t.resolvedAt)}</div>`:''}
     </div>`;
   }).join('');
   $('reqList').querySelectorAll('button[data-approve]').forEach(b=>b.addEventListener('click',async()=>{
@@ -215,6 +230,9 @@ document.querySelectorAll('.reqFilter').forEach(b=>b.addEventListener('click',()
   document.querySelectorAll('.reqFilter').forEach(x=>x.classList.remove('active'));
   b.classList.add('active'); reqStatus=b.dataset.status; loadRequests();
 }));
+let reqSearchTimer;
+$('reqSearch').addEventListener('input',()=>{clearTimeout(reqSearchTimer);reqSearchTimer=setTimeout(loadRequests,300)});
+$('reqType').addEventListener('change',loadRequests);
 get('/api/admin/requests?status=pending').then(d=>{if(d.ok&&d.pending>0){const b=$('reqBadge');b.style.display='';b.textContent=d.pending}});
 
 // ================= PENDING =================
