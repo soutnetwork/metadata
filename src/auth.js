@@ -42,9 +42,14 @@ function saveDB(db) {
 function normEmail(e) { return (e || '').trim().toLowerCase(); }
 
 function effectivePerms(u) {
-  if (!u) return { seeCodes: false, downloadCover: false };
-  if (u.role === 'admin') return { seeCodes: true, downloadCover: true };
-  return Object.assign({}, DEFAULT_PERMS, u.perms || {});
+  if (!u) return { seeCodes: false, downloadCover: false, tools: {} };
+  if (u.role === 'admin') return { seeCodes: true, downloadCover: true, tools: {} };
+  const p = u.perms || {};
+  return {
+    seeCodes: p.seeCodes !== false,
+    downloadCover: p.downloadCover !== false,
+    tools: p.tools || {},
+  };
 }
 
 function hasAnyAdmin() { return loadDB().users.some((u) => u.role === 'admin'); }
@@ -98,7 +103,10 @@ function setPermissions(email, perms) {
   const db = loadDB();
   const u = db.users.find((x) => x.email === normEmail(email));
   if (!u) throw new Error('User not found.');
-  u.perms = Object.assign({}, DEFAULT_PERMS, u.perms || {}, perms || {});
+  u.perms = u.perms || {};
+  if (perms.seeCodes !== undefined) u.perms.seeCodes = !!perms.seeCodes;
+  if (perms.downloadCover !== undefined) u.perms.downloadCover = !!perms.downloadCover;
+  if (perms.tools !== undefined) u.perms.tools = perms.tools;
   saveDB(db);
 }
 

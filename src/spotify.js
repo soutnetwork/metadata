@@ -118,4 +118,48 @@ async function getTrackMetadata(gid) {
   throw lastErr || new Error('lookup-failed');
 }
 
-module.exports = { getTrackMetadata, normalizeTrack, pickExternalId, fmtDate };
+// ---- album lookup (UPC, not ISRC) ----
+function normalizeAlbum(album) {
+  const licUuid = (album.licensor && album.licensor.uuid) || null;
+  const artistName = (album.artist && album.artist[0] && album.artist[0].name) || null;
+  return {
+    name: album.name || null,
+    artist: artistName,
+    label: album.label || null,
+    date: fmtDate(album.date),
+    isrc: null,
+    upc: pickExternalId(album.external_id, 'upc'),
+    image: coverUrl(album),
+    licensorUuid: licUuid ? licUuid.replace(/-/g, '').toLowerCase() : null,
+    albumGid: album.gid || null,
+    trackGid: null,
+    isAlbum: true,
+  };
+}
+
+async function getAlbumMetadata(gid) {
+  const ck = 'alb:' + gid;
+  const cached = cacheGet(ck);
+  if (cached) return cached;
+
+  const MAX = 3;
+  let lastErr;
+  for (let i = 0; i < MAX; i++) {
+    try {
+      const token = await getToken();
+      const album = await fetchJson(`${BASE}/album/${gid}?market=from_token`, token);
+      if (!album || !album.gid) { const e = new Error('bad-data'); e.code = 'BAD'; throw e; }
+      const m = normalizeAlbum(album);
+      if (m.licensorUuid) cacheSet(ck, m);
+      return m;
+    } catch (e) {
+      lastErr = e;
+      if (e.code === 'AUTH') invalidate();
+      if (e.code === 'NO_BROWSER') throw e;
+    }
+    await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+  }
+  throw lastErr || new Error('lookup-failed');
+}
+
+module.exports = { getTrackMetadata, getAlbumMetadata, normalizeTrack, pickExternalId, fmtDate };
