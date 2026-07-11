@@ -12,16 +12,21 @@ const MAX = 20000;
 const SERVICES = {
   copyright: {
     title: 'Copyright / Strike',
-    inputLabel: 'Video link that received the strike',
+    inputLabel: 'Video ID',
+    inputHint: '11-character video ID, e.g. 6j6zBLajkWg',
+    inputPattern: '^[A-Za-z0-9_-]{11}$',
+    inputError: 'Please enter the video ID only (11 characters) — not a link.',
     fields: [{ key: 'channel', label: 'Channel that issued the strike' }],
     eta: '1–20 minutes',
   },
   youtube_owner: {
     title: 'YouTube Channel Owner',
-    inputLabel: 'YouTube channel link',
+    inputLabel: 'YouTube channel ID',
+    inputHint: '24-character channel ID starting with UC, e.g. UCNhqvQMXIgRfjAGmxQqdNRw',
+    inputPattern: '^UC[A-Za-z0-9_-]{22}$',
+    inputError: 'Please enter the channel ID only (starts with UC) — not a username or link.',
     fields: [
       { key: 'owner', label: 'Owner (CMS & MCN)' },
-      { key: 'email', label: 'Owner email' },
     ],
     eta: '1–20 minutes',
   },
@@ -40,11 +45,16 @@ function save(a) { const t = P + '.tmp'; fs.writeFileSync(t, JSON.stringify(a), 
 
 function create({ type, input, email }) {
   if (!isService(type)) throw new Error('Unknown service.');
-  if (!input || !input.trim()) throw new Error('A link is required.');
+  if (!input || !input.trim()) throw new Error('This field is required.');
+  const value = input.trim();
+  const svc = SERVICES[type];
+  if (svc.inputPattern && !new RegExp(svc.inputPattern).test(value)) {
+    throw new Error(svc.inputError || 'Invalid input.');
+  }
   const arr = load();
   const ticket = {
     id: crypto.randomBytes(8).toString('hex'),
-    type, input: input.trim(), email,
+    type, input: value, email,
     status: 'pending', fields: {},
     createdAt: new Date().toISOString(),
     resolvedAt: null, resolvedBy: null,
