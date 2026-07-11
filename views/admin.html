@@ -28,6 +28,7 @@
   <div class="brand"><img src="/assets/logo-icon.png" class="logo" alt=""/><span><small>Sout Network</small>Admin</span></div>
   <div class="nav">
     <span class="who" id="who"></span>
+    <a href="/scanner">Scanner</a>
     <a href="/">Lookup</a>
     <a href="#" id="logout">Sign out</a>
   </div>
@@ -125,7 +126,10 @@
     </div>
 
     <div class="card">
-      <h2>All distributors (<span id="dCount">…</span>)</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0">All distributors (<span id="dCount">…</span>)</h2>
+        <button id="dExport" class="ghost" style="padding:8px 12px">Export (Excel)</button>
+      </div>
       <input id="dSearch" type="text" placeholder="Filter by name or code…" style="margin-bottom:12px"/>
       <table>
         <thead><tr><th>Distributor</th><th>Code</th><th>Sub-labels</th><th></th></tr></thead>
@@ -334,6 +338,7 @@ function renderDist(){
   }));
 }
 $('dSearch').addEventListener('input',renderDist);
+$('dExport').addEventListener('click',()=>{const a=document.createElement('a');a.href='/api/admin/distributors/export';a.download='sout-distributors.csv';document.body.appendChild(a);a.click();a.remove();});
 $('dAdd').addEventListener('click',async()=>{
   const uuid=$('dUuid').value.trim(),distributor=$('dName').value.trim(),notes=$('dNotes').value.trim();
   if(!uuid||!distributor){setS($('dStatus'),'Code and name are required.',true);return}

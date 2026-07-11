@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Bulk Scanner — Sout Network</title>
+<link rel="icon" href="/assets/favicon.png"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/assets/style.css"/>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><img src="/assets/logo-icon.png" class="logo" alt=""/><span><small>Sout Network</small>Bulk Scanner</span></div>
+  <div class="nav">
+    <a href="/admin">Admin</a>
+    <a href="/">Lookup</a>
+    <a href="#" id="logout">Sign out</a>
+  </div>
+</div>
+
+<div class="wrap" style="max-width:860px">
+  <div class="head">
+    <h1>Bulk Scanner</h1>
+    <div class="sub">Paste Spotify track links (one per line). New distributor codes are collected automatically so you can add them.</div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <label class="field" for="links" style="margin:0">Track links (up to 30 at a time)</label>
+      <button id="export" class="ghost" style="padding:8px 12px">Export all data (Excel)</button>
+    </div>
+    <textarea id="links" style="min-height:150px" placeholder="https://open.spotify.com/track/...&#10;https://open.spotify.com/track/...&#10;https://open.spotify.com/track/..."></textarea>
+    <div class="row" style="margin-top:10px"><button id="scan">Scan</button></div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card" id="resultsCard" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">Results</h2>
+      <a href="/admin" class="small" id="pendingLink" style="display:none">Add the new ones in Admin → Pending ›</a>
+    </div>
+    <div id="summary" class="small" style="margin:10px 0"></div>
+    <table>
+      <thead><tr><th>Track</th><th>Code</th><th>Status</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function post(p,b){const r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return r.json()}
+function setStatus(m,e,ok){const s=$('status');s.textContent=m||'';s.className='status'+(e?' err':(ok?' ok':''))}
+
+$('logout').addEventListener('click',async e=>{e.preventDefault();await post('/api/logout');location.href='/login'});
+$('export').addEventListener('click',()=>{const a=document.createElement('a');a.href='/api/admin/distributors/export';a.download='sout-distributors.csv';document.body.appendChild(a);a.click();a.remove();});
+
+$('scan').addEventListener('click',async()=>{
+  const text=$('links').value.trim();
+  if(!text){setStatus('Paste some links first.',true);return}
+  $('scan').disabled=true; setStatus('Scanning… this can take a moment for many links.');
+  const d=await post('/api/admin/scan',{text});
+  $('scan').disabled=false;
+  if(!d.ok){setStatus(d.error||'Failed.',true);return}
+  setStatus('');
+  const rows=d.results;
+  let known=0,unknown=0,failed=0;
+  $('rows').innerHTML=rows.map(r=>{
+    let status;
+    if(!r.ok){failed++;status=`<span class="badge" style="background:#fee2e2;color:#b91c1c">${esc(r.error||'error')}</span>`}
+    else if(r.found){known++;status=`<span class="badge" style="background:#dcfce7;color:#15803d">Found: ${esc(r.distributor)}</span>`}
+    else {unknown++;status='<span class="badge pending">New — added to Pending</span>'}
+    const track=r.track?`${esc(r.track.name||'—')}<div class="small">${esc(r.track.artist||'')}</div>`:`<span class="small" style="word-break:break-all">${esc(r.input)}</span>`;
+    return `<tr><td>${track}</td><td class="mono" style="font-size:11px">${esc(r.uuid||'—')}</td><td>${status}</td></tr>`;
+  }).join('');
+  $('summary').textContent=`${known} known · ${unknown} new · ${failed} failed`;
+  $('pendingLink').style.display = unknown>0 ? 'inline-block' : 'none';
+  $('resultsCard').style.display='block';
+});
+</script>
+</body>
+</html>
