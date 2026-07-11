@@ -4,11 +4,12 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 
 const { parseSpotifyInput } = require('./src/spotifyId');
-const { getTrackMetadata, normalizeTrack } = require('./src/spotify');
+const { getTrackMetadata, getAlbumMetadata, normalizeTrack } = require('./src/spotify');
 const lookupModule = require('./src/lookup');
 const history = require('./src/history');
 const pending = require('./src/pending');
 const requests = require('./src/requests');
+const usage = require('./src/usage');
 const auth = require('./src/auth');
 
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', (e && e.message) || e));
@@ -19,6 +20,19 @@ let active = 0;
 const waiters = [];
 function acquire() { return new Promise((res) => { if (active < MAX_CONCURRENT) { active++; res(); } else waiters.push(res); }); }
 function release() { active--; if (waiters.length) { active++; waiters.shift()(); } }
+
+// per-user, per-tool access + daily limit check
+function checkLimit(user, tool) {
+  if (user.role === 'admin') return { ok: true };
+  const access = (user.perms && user.perms.tools && user.perms.tools[tool]);
+  if (access === undefined || access === 'open' || access === null) return { ok: true };
+  if (access === 'off') return { ok: false, error: 'This tool is not available on your account.' };
+  const n = parseInt(access, 10);
+  if (!n || n < 0) return { ok: true };
+  const used = usage.count(user.email, tool);
+  if (used >= n) return { ok: false, error: `Daily limit reached (${n}/day). Please try again tomorrow.` };
+  return { ok: true };
+}
 
 const app = express();
 app.set('trust proxy', 1);
@@ -59,6 +73,7 @@ function buildResult(meta, perms) {
       label: meta.label,
       image: meta.image,
       coverFile: coverFileId(meta.image),
+      isAlbum: !!meta.isAlbum,
     },
   };
 }
@@ -126,7 +141,10 @@ app.get('/api/services', auth.requireAuth, (req, res) => res.json({ ok: true, se
 app.post('/api/request', auth.requireAuth, (req, res) => {
   try {
     const { type, input } = req.body || {};
+    const lim = checkLimit(req.user, type);
+    if (!lim.ok) return res.status(429).json({ ok: false, error: lim.error });
     const t = requests.create({ type, input, email: req.user.email });
+    usage.incr(req.user.email, type);
     res.json({ ok: true, id: t.id });
   } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
@@ -140,13 +158,17 @@ app.get('/api/my-requests', auth.requireAuth, (req, res) => {
 app.get('/api/me', auth.requireAuth, (req, res) => res.json({ ok: true, email: req.user.email, role: req.user.role, perms: req.user.perms }));
 
 app.post('/api/lookup', auth.requireAuth, async (req, res) => {
+  const lim = checkLimit(req.user, 'spotify');
+  if (!lim.ok) return res.status(429).json({ ok: false, error: lim.error });
   await acquire();
   try {
     const { url } = req.body || {};
     const parsed = parseSpotifyInput(url);
-    if (parsed.type !== 'track') return res.status(400).json({ ok: false, error: 'Please enter a track link.' });
-    const meta = await getTrackMetadata(parsed.gid);
+    const meta = parsed.type === 'album'
+      ? await getAlbumMetadata(parsed.gid)
+      : await getTrackMetadata(parsed.gid);
     const result = buildResult(meta, req.user.perms);
+    usage.incr(req.user.email, 'spotify');
     history.log({
       email: req.user.email, url, gid: parsed.gid,
       track: { name: meta.name, artist: meta.artist },
