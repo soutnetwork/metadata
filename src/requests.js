@@ -70,8 +70,13 @@ function listByUser(email, type) {
   return load().filter((t) => (t.email || '').toLowerCase() === e && (!type || t.type === type));
 }
 
-function listAll({ status, type } = {}) {
-  return load().filter((t) => (!status || t.status === status) && (!type || t.type === type));
+function listAll({ status, type, email } = {}) {
+  const e = (email || '').toLowerCase().trim();
+  return load().filter((t) =>
+    (!status || t.status === status) &&
+    (!type || t.type === type) &&
+    (!e || (t.email || '').toLowerCase().includes(e))
+  );
 }
 
 function get(id) { return load().find((t) => t.id === id) || null; }
