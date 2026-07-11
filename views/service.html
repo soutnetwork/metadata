@@ -90,7 +90,9 @@ async function loadMine(){
 
 async function submit(){
   const input=$('input').value.trim();
-  if(!input){setStatus('Paste a link first.',true);return}
+  if(!input){setStatus('Please fill this in first.',true);return}
+  const svc=SERVICES[TYPE];
+  if(svc&&svc.inputPattern&&!new RegExp(svc.inputPattern).test(input)){setStatus(svc.inputError||'Invalid input.',true);return}
   $('go').disabled=true; setStatus('Submitting…');
   const d=await post('/api/request',{type:TYPE,input});
   $('go').disabled=false;
@@ -107,6 +109,7 @@ async function submit(){
   document.title=svc.title+' — Sout Network';
   $('title').textContent=svc.title;
   $('inputLabel').textContent=svc.inputLabel;
+  if(svc.inputHint)$('input').placeholder=svc.inputHint;
   $('sub').textContent='Submit a request. Our team will get you the result — usually within '+svc.eta+'.';
   $('eta').textContent='Typical response time: '+svc.eta+'.';
   loadMine();
