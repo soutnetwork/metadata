@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Admin — Sout Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/assets/style.css"/>
+<style>
+  .tabs{display:flex;gap:6px;margin-bottom:18px;border-bottom:1px solid var(--line)}
+  .tab{padding:10px 14px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .pane{display:none}.pane.active{display:block}
+  .toggle-cell{display:flex;gap:14px;align-items:center}
+  .sw{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer}
+  .sw input{width:auto}
+  td .mono,.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px}
+  .small{font-size:12px;color:var(--muted)}
+  .drill{cursor:pointer;color:var(--accent);font-weight:600}
+  .backlink{font-size:13px;margin-bottom:10px;display:inline-block}
+  .reqFilter.active{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><img src="/assets/logo-icon.png" class="logo" alt=""/><span><small>Sout Network</small>Admin</span></div>
+  <div class="nav">
+    <span class="who" id="who"></span>
+    <a href="/scanner">Scanner</a>
+    <a href="/">Lookup</a>
+    <a href="#" id="logout">Sign out</a>
+  </div>
+</div>
+
+<div class="wrap" style="max-width:900px">
+  <div class="tabs">
+    <div class="tab active" data-pane="people">People</div>
+    <div class="tab" data-pane="pending">Pending <span id="pendBadge" class="badge pending" style="display:none">0</span></div>
+    <div class="tab" data-pane="requests">Requests <span id="reqBadge" class="badge pending" style="display:none">0</span></div>
+    <div class="tab" data-pane="distributors">Distributors</div>
+    <div class="tab" data-pane="history">Search history</div>
+  </div>
+
+  <!-- ===== PEOPLE ===== -->
+  <div class="pane active" id="pane-people">
+    <div class="card">
+      <h2>Invite someone</h2>
+      <div class="row">
+        <input id="invEmail" type="email" placeholder="person@company.com"/>
+        <select id="invRole" style="max-width:130px"><option value="user">User</option><option value="admin">Admin</option></select>
+        <button id="invGo">Create invite</button>
+      </div>
+      <div class="toggle-cell" style="margin-top:10px">
+        <label class="sw"><input type="checkbox" id="invSeeCodes" checked/> can see UPC/ISRC</label>
+        <label class="sw"><input type="checkbox" id="invDownload" checked/> can download cover</label>
+      </div>
+      <div class="status" id="invStatus"></div>
+      <div id="linkWrap" style="display:none">
+        <div class="hint">Send this link. It expires in 7 days.</div>
+        <div class="linkbox"><input id="invLink" type="text" readonly/><button id="copyLink" class="ghost">Copy</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>People &amp; permissions</h2>
+      <table>
+        <thead><tr><th>Email</th><th>Role</th><th>Permissions</th><th>Last sign-in</th><th></th></tr></thead>
+        <tbody id="rows"><tr><td colspan="5" class="small">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== PENDING ===== -->
+  <div class="pane" id="pane-pending">
+    <div class="card">
+      <h2>Unknown codes to identify</h2>
+      <div class="small" style="margin-bottom:12px">Tracks that were searched but whose distributor isn't in your list yet. Add the distributor and it moves out of here.</div>
+      <table>
+        <thead><tr><th>Code</th><th>Example track</th><th>Times seen</th><th></th></tr></thead>
+        <tbody id="pRows"><tr><td colspan="4" class="small">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== REQUESTS ===== -->
+  <div class="pane" id="pane-requests">
+    <div class="card">
+      <h2>Service requests</h2>
+      <div class="small" style="margin-bottom:12px">Search, filter and browse everything ever submitted.</div>
+      <div class="row" style="margin-bottom:10px">
+        <input id="reqSearch" type="text" placeholder="Search by email…"/>
+        <select id="reqType" style="max-width:220px">
+          <option value="">All services</option>
+          <option value="copyright">Copyright / Strike</option>
+          <option value="youtube_owner">YouTube Channel Owner</option>
+          <option value="yt_distributor">YouTube → Distributor</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="ghost reqFilter active" data-status="pending">Pending</button>
+        <button class="ghost reqFilter" data-status="">All</button>
+        <button class="ghost reqFilter" data-status="approved">Approved</button>
+        <button class="ghost reqFilter" data-status="rejected">Rejected</button>
+      </div>
+      <div id="reqCount" class="small" style="margin-bottom:10px"></div>
+      <div id="reqList"><div class="small">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- ===== DISTRIBUTORS ===== -->
+  <div class="pane" id="pane-distributors">
+    <div class="card">
+      <h2>Add a distributor</h2>
+      <div class="row"><input id="dUuid" type="text" placeholder="Internal code" class="mono"/><input id="dName" type="text" placeholder="Distributor name"/></div>
+      <div class="row" style="margin-top:10px"><input id="dNotes" type="text" placeholder="Sub-labels (optional, comma separated)"/><button id="dAdd">Add</button></div>
+      <div class="status" id="dStatus"></div>
+      <div class="divider"></div>
+      <div class="toggle" style="font-size:13px"><a id="bulkToggle">Bulk add (paste many) ›</a></div>
+      <div id="bulkWrap" style="display:none;margin-top:10px">
+        <div class="hint">One per line: <span class="mono">code,distributor,sub-labels</span></div>
+        <textarea id="bulkText" placeholder="c71b29ea...,Believe Music,&#10;0f26cfca...,FUGA,Make Waves"></textarea>
+        <div class="row" style="margin-top:10px"><button id="bulkGo" class="ghost">Import</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0">All distributors (<span id="dCount">…</span>)</h2>
+        <button id="dExport" class="ghost" style="padding:8px 12px">Export (Excel)</button>
+      </div>
+      <input id="dSearch" type="text" placeholder="Filter by name or code…" style="margin-bottom:12px"/>
+      <table>
+        <thead><tr><th>Distributor</th><th>Code</th><th>Sub-labels</th><th></th></tr></thead>
+        <tbody id="dRows"><tr><td colspan="4" class="small">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== HISTORY ===== -->
+  <div class="pane" id="pane-history">
+    <div class="card">
+      <h2 id="histTitle">Search history</h2>
+      <a href="#" id="histBack" class="backlink" style="display:none">‹ Back to all</a>
+      <div class="small" id="histMeta" style="margin-bottom:12px"></div>
+      <table>
+        <thead><tr><th>When</th><th>User</th><th>Track</th><th>Distributor</th></tr></thead>
+        <tbody id="hRows"><tr><td colspan="4" class="small">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="hint" id="stats"></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function post(p,b){const r=await fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});return r.json()}
+async function get(p){const r=await fetch(p);return r.json()}
+function setS(el,m,e,ok){el.textContent=m||'';el.className='status'+(e?' err':(ok?' ok':''))}
+function fmtTime(iso){try{return new Date(iso).toLocaleString()}catch(_){return iso||'—'}}
+
+let meEmail='';
+get('/api/me').then(d=>{if(d.ok){meEmail=d.email;$('who').textContent=d.email}});
+
+// ---- tabs ----
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  $('pane-'+t.dataset.pane).classList.add('active');
+  if(t.dataset.pane==='distributors')loadDistributors();
+  if(t.dataset.pane==='history')loadHistory(null);
+  if(t.dataset.pane==='pending')loadPending();
+  if(t.dataset.pane==='requests')loadRequests();
+}));
+
+// ================= REQUESTS =================
+let SERVICES={};
+let reqStatus='pending';
+function reqFieldsView(svc,t){
+  return svc.fields.map(f=>`<b>${esc(f.label)}:</b> ${esc((t.fields&&t.fields[f.key])||'—')}`).join('<br>');
+}
+async function loadRequests(){
+  const params=new URLSearchParams();
+  if(reqStatus)params.set('status',reqStatus);
+  const type=$('reqType')?$('reqType').value:''; if(type)params.set('type',type);
+  const email=$('reqSearch')?$('reqSearch').value.trim():''; if(email)params.set('email',email);
+  const qs=params.toString();
+  const d=await get('/api/admin/requests'+(qs?('?'+qs):'')); if(!d.ok)return;
+  SERVICES=d.services||{};
+  const badge=$('reqBadge');
+  if(d.pending>0){badge.style.display='';badge.textContent=d.pending}else{badge.style.display='none'}
+  $('reqCount').textContent=d.items.length+' result'+(d.items.length===1?'':'s');
+  if(!d.items.length){$('reqList').innerHTML='<div class="small">Nothing matches.</div>';return}
+  $('reqList').innerHTML=d.items.map(t=>{
+    const svc=SERVICES[t.type]||{title:t.type,fields:[]};
+    const header=`<div style="margin-bottom:6px"><span class="badge admin">${esc(svc.title)}</span> <span class="small">From ${esc(t.email||'')} • ${fmtTime(t.createdAt)}</span> ${statusBadge(t.status)}</div>`;
+    const link=`<a href="${esc(t.input)}" target="_blank" class="mono" style="font-size:12px;word-break:break-all">${esc(t.input)}</a>`;
+    if(t.status==='pending'){
+      const inputs=svc.fields.map(f=>`<div style="flex:1;min-width:150px"><div class="k" style="font-size:11px;color:var(--muted);margin-bottom:4px">${esc(f.label)}</div><input type="text" data-field="${esc(f.key)}" placeholder="${esc(f.label)}"/></div>`).join('');
+      return `<div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px" data-id="${esc(t.id)}">
+        ${header}${link}
+        <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px">${inputs}</div>
+        <div style="margin-top:10px"><button data-approve="${esc(t.id)}">Approve &amp; send</button> <button class="danger" data-reject="${esc(t.id)}">Reject</button></div>
+      </div>`;
+    }
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px">
+      ${header}${link}
+      <div class="small" style="margin-top:8px">${reqFieldsView(svc,t)}</div>
+      ${t.resolvedBy?`<div class="small" style="margin-top:6px;color:var(--muted)">Answered by ${esc(t.resolvedBy)} • ${fmtTime(t.resolvedAt)}</div>`:''}
+    </div>`;
+  }).join('');
+  $('reqList').querySelectorAll('button[data-approve]').forEach(b=>b.addEventListener('click',async()=>{
+    const box=b.closest('[data-id]');const fields={};
+    box.querySelectorAll('input[data-field]').forEach(inp=>fields[inp.dataset.field]=inp.value.trim());
+    const r=await post('/api/admin/requests/resolve',{id:b.dataset.approve,fields});
+    if(r.ok)loadRequests();else alert(r.error||'Failed');
+  }));
+  $('reqList').querySelectorAll('button[data-reject]').forEach(b=>b.addEventListener('click',async()=>{
+    if(!confirm('Reject this request?'))return;
+    const r=await post('/api/admin/requests/reject',{id:b.dataset.reject});
+    if(r.ok)loadRequests();else alert(r.error||'Failed');
+  }));
+}
+function statusBadge(s){
+  if(s==='approved')return '<span class="badge" style="background:#dcfce7;color:#15803d">approved</span>';
+  if(s==='rejected')return '<span class="badge" style="background:#fee2e2;color:#b91c1c">rejected</span>';
+  return '<span class="badge pending">pending</span>';
+}
+document.querySelectorAll('.reqFilter').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.reqFilter').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); reqStatus=b.dataset.status; loadRequests();
+}));
+let reqSearchTimer;
+$('reqSearch').addEventListener('input',()=>{clearTimeout(reqSearchTimer);reqSearchTimer=setTimeout(loadRequests,300)});
+$('reqType').addEventListener('change',loadRequests);
+get('/api/admin/requests?status=pending').then(d=>{if(d.ok&&d.pending>0){const b=$('reqBadge');b.style.display='';b.textContent=d.pending}});
+
+// ================= PENDING =================
+async function loadPending(){
+  const d=await get('/api/admin/pending'); if(!d.ok)return;
+  const badge=$('pendBadge');
+  if(d.count>0){badge.style.display='';badge.textContent=d.count}else{badge.style.display='none'}
+  $('pRows').innerHTML = d.items.map(x=>`<tr>
+    <td class="mono">${esc(x.uuid)}</td>
+    <td>${esc((x.track&&x.track.name)||'—')}<div class="small">${esc((x.track&&x.track.artist)||'')}</div></td>
+    <td>${x.count||1}</td>
+    <td style="text-align:right">
+      <button class="ghost" data-add="${esc(x.uuid)}">Add distributor</button>
+      <button class="danger" data-dismiss="${esc(x.uuid)}">Dismiss</button>
+    </td>
+  </tr>`).join('') || '<tr><td colspan="4" class="small">Nothing pending. 🎉</td></tr>';
+  $('pRows').querySelectorAll('button[data-add]').forEach(b=>b.addEventListener('click',async()=>{
+    const name=prompt('Distributor name for this code:'); if(!name||!name.trim())return;
+    const r=await post('/api/admin/distributors/add',{uuid:b.dataset.add,distributor:name.trim()});
+    if(r.ok){loadPending();}else alert(r.error||'Failed');
+  }));
+  $('pRows').querySelectorAll('button[data-dismiss]').forEach(b=>b.addEventListener('click',async()=>{
+    if(!confirm('Dismiss this code?'))return;
+    await post('/api/admin/pending/dismiss',{uuid:b.dataset.dismiss}); loadPending();
+  }));
+}
+// show the pending badge on first load
+get('/api/admin/pending').then(d=>{if(d.ok&&d.count>0){const b=$('pendBadge');b.style.display='';b.textContent=d.count}});
+
+// ================= PEOPLE =================
+const TOOLS=[['spotify','Spotify'],['copyright','Copyright'],['youtube_owner','YT Owner'],['yt_distributor','YT Distributor']];
+function toolVal(u,k){return (u.perms&&u.perms.tools&&u.perms.tools[k]!==undefined)?u.perms.tools[k]:'open';}
+function settingText(v){if(v==='off')return 'off';if(v==='open'||v===undefined)return 'open';return v+'/day';}
+async function loadPeople(){
+  const d=await get('/api/admin/users'); if(!d.ok)return;
+  const rows=[];
+  for(const u of d.users){
+    const isMe=u.email===meEmail;
+    const eid=esc(u.email);
+    const last = u.lastLogin ? `${fmtTime(u.lastLogin.at)}<div class="small">${esc(u.lastLogin.ip||'')}</div>` : '<span class="small">never</span>';
+    if(u.role==='admin'){
+      rows.push(`<tr>
+        <td><span class="drill" data-user="${eid}">${eid}</span></td>
+        <td><span class="badge admin">admin</span></td>
+        <td class="small">full access</td>
+        <td>${last}</td>
+        <td style="text-align:right">${isMe?'<span class="small">you</span>':`<button class="danger" data-remove="${eid}">Remove</button>`}</td>
+      </tr>`);
+      continue;
+    }
+    const summary = TOOLS.map(([k,l])=>`${l}: <b>${settingText(toolVal(u,k))}</b>`).join(' &middot; ');
+    const toolCtrls = TOOLS.map(([k,l])=>{
+      const v=toolVal(u,k);
+      const mode=(v==='off')?'off':((v==='open'||v===undefined)?'open':'limit');
+      const num=(mode==='limit')?v:'';
+      return `<div style="display:flex;align-items:center;gap:6px;margin:4px 0">
+        <span style="width:120px;font-size:13px">${l}</span>
+        <select data-tool="${k}" style="max-width:130px">
+          <option value="open"${mode==='open'?' selected':''}>Open</option>
+          <option value="off"${mode==='off'?' selected':''}>Off</option>
+          <option value="limit"${mode==='limit'?' selected':''}>Limit/day</option>
+        </select>
+        <input type="number" min="1" data-limit="${k}" value="${num}" placeholder="e.g. 5" style="width:90px;${mode==='limit'?'':'display:none'}"/>
+      </div>`;
+    }).join('');
+    rows.push(`<tr>
+      <td><span class="drill" data-user="${eid}">${eid}</span>${u.locked?' <span class="badge pending">locked</span>':''}</td>
+      <td><span class="badge user">user</span></td>
+      <td class="small" style="max-width:300px">${summary}</td>
+      <td>${last}</td>
+      <td style="text-align:right"><button class="ghost" data-access="${eid}">Access</button> ${isMe?'':`<button class="danger" data-remove="${eid}">Remove</button>`}</td>
+    </tr>
+    <tr class="editor" style="display:none"><td colspan="5" style="background:#fafafa">
+      <div style="padding:8px 2px">
+        <div class="toggle-cell" style="margin-bottom:10px">
+          <label class="sw"><input type="checkbox" data-ed="seeCodes" ${u.perms.seeCodes!==false?'checked':''}/> can see UPC/ISRC</label>
+          <label class="sw"><input type="checkbox" data-ed="downloadCover" ${u.perms.downloadCover!==false?'checked':''}/> can download cover</label>
+        </div>
+        ${toolCtrls}
+        <button data-save="${eid}" style="margin-top:10px">Save access</button>
+        <span class="status" data-st style="display:inline-block;margin-left:10px"></span>
+      </div>
+    </td></tr>`);
+  }
+  for(const i of d.invites){
+    rows.push(`<tr><td>${esc(i.email)}</td><td><span class="badge ${i.role}">${i.role}</span></td><td class="small">&mdash;</td><td><span class="badge pending">invite pending</span></td><td></td></tr>`);
+  }
+  $('rows').innerHTML=rows.join('')||'<tr><td colspan="5" class="small">No one yet.</td></tr>';
+  $('rows').querySelectorAll('button[data-access]').forEach(b=>b.addEventListener('click',()=>{
+    const ed=b.closest('tr').nextElementSibling;
+    if(ed&&ed.classList.contains('editor'))ed.style.display=ed.style.display==='none'?'table-row':'none';
+  }));
+  $('rows').querySelectorAll('select[data-tool]').forEach(sel=>sel.addEventListener('change',()=>{
+    const inp=sel.parentElement.querySelector('input[data-limit]');
+    inp.style.display=sel.value==='limit'?'':'none';
+  }));
+  $('rows').querySelectorAll('button[data-save]').forEach(b=>b.addEventListener('click',async()=>{
+    const box=b.closest('.editor');
+    const tools={};
+    box.querySelectorAll('select[data-tool]').forEach(sel=>{
+      const k=sel.dataset.tool,mode=sel.value;
+      if(mode==='off')tools[k]='off';
+      else if(mode==='limit'){const n=parseInt(box.querySelector('input[data-limit="'+k+'"]').value,10);tools[k]=(n&&n>0)?n:'open';}
+      else tools[k]='open';
+    });
+    const perms={seeCodes:box.querySelector('input[data-ed="seeCodes"]').checked,downloadCover:box.querySelector('input[data-ed="downloadCover"]').checked,tools};
+    const st=box.querySelector('[data-st]');st.textContent='Saving…';st.className='status';
+    const r=await post('/api/admin/permissions',{email:b.dataset.save,perms});
+    if(r.ok){st.textContent='Saved';st.className='status ok';setTimeout(loadPeople,700);}else{st.textContent=r.error||'Failed';st.className='status err';}
+  }));
+  $('rows').querySelectorAll('button[data-remove]').forEach(b=>b.addEventListener('click',async()=>{
+    if(!confirm('Remove '+b.dataset.remove+'?'))return;
+    const r=await post('/api/admin/remove',{email:b.dataset.remove}); if(r.ok)loadPeople();else alert(r.error||'Failed');
+  }));
+  $('rows').querySelectorAll('.drill').forEach(s=>s.addEventListener('click',()=>{
+    document.querySelector('.tab[data-pane="history"]').click();
+    loadHistory(s.dataset.user);
+  }));
+}
+
+$('invGo').addEventListener('click',async()=>{
+  const email=$('invEmail').value.trim(), role=$('invRole').value;
+  const perms={seeCodes:$('invSeeCodes').checked,downloadCover:$('invDownload').checked};
+  if(!email){setS($('invStatus'),'Enter an email.',true);return}
+  $('invGo').disabled=true; setS($('invStatus'),'Creating…');
+  const d=await post('/api/admin/invite',{email,role,perms}); $('invGo').disabled=false;
+  if(!d.ok){setS($('invStatus'),d.error||'Failed.',true);return}
+  setS($('invStatus'),'Invite created.',false,true); $('invEmail').value='';
+  $('linkWrap').style.display='block'; $('invLink').value=d.link; loadPeople();
+});
+$('copyLink').addEventListener('click',()=>{$('invLink').select();navigator.clipboard.writeText($('invLink').value).then(()=>{$('copyLink').textContent='Copied';setTimeout(()=>$('copyLink').textContent='Copy',1500)})});
+
+// ================= DISTRIBUTORS =================
+let allDist=[];
+async function loadDistributors(){
+  const d=await get('/api/admin/distributors'); if(!d.ok)return;
+  allDist=d.items; $('dCount').textContent=d.count; renderDist();
+}
+function renderDist(){
+  const q=$('dSearch').value.trim().toLowerCase();
+  const items=allDist.filter(x=>!q||x.distributor.toLowerCase().includes(q)||x.uuid.includes(q));
+  $('dRows').innerHTML = items.map(x=>`<tr>
+    <td>${esc(x.distributor)}</td>
+    <td class="mono">${esc(x.uuid)}</td>
+    <td class="small">${esc((x.subLabels||[]).join(', '))}</td>
+    <td style="text-align:right"><button class="ghost" data-edit="${esc(x.uuid)}">Edit</button> <button class="danger" data-del="${esc(x.uuid)}">Delete</button></td>
+  </tr>`).join('') || '<tr><td colspan="4" class="small">No matches.</td></tr>';
+  $('dRows').querySelectorAll('button[data-edit]').forEach(b=>b.addEventListener('click',async()=>{
+    const x=allDist.find(d=>d.uuid===b.dataset.edit); if(!x)return;
+    const name=prompt('Distributor name:',x.distributor); if(name===null)return;
+    const notes=prompt('Sub-labels (comma separated, leave empty for none):',(x.subLabels||[]).join(', ')); if(notes===null)return;
+    const r=await post('/api/admin/distributors/update',{uuid:x.uuid,distributor:name.trim(),notes:notes.trim()});
+    if(r.ok)loadDistributors();else alert(r.error||'Failed');
+  }));
+  $('dRows').querySelectorAll('button[data-del]').forEach(b=>b.addEventListener('click',async()=>{
+    if(!confirm('Delete this distributor?'))return;
+    const r=await post('/api/admin/distributors/delete',{uuid:b.dataset.del}); if(r.ok)loadDistributors();else alert(r.error||'Failed');
+  }));
+}
+$('dSearch').addEventListener('input',renderDist);
+$('dExport').addEventListener('click',()=>{const a=document.createElement('a');a.href='/api/admin/distributors/export';a.download='sout-distributors.csv';document.body.appendChild(a);a.click();a.remove();});
+$('dAdd').addEventListener('click',async()=>{
+  const uuid=$('dUuid').value.trim(),distributor=$('dName').value.trim(),notes=$('dNotes').value.trim();
+  if(!uuid||!distributor){setS($('dStatus'),'Code and name are required.',true);return}
+  const r=await post('/api/admin/distributors/add',{uuid,distributor,notes});
+  if(!r.ok){setS($('dStatus'),r.error||'Failed.',true);return}
+  setS($('dStatus'),r.updated?'Updated.':'Added.',false,true);
+  $('dUuid').value='';$('dName').value='';$('dNotes').value=''; loadDistributors();
+});
+$('bulkToggle').addEventListener('click',()=>{const w=$('bulkWrap');w.style.display=w.style.display==='none'?'block':'none'});
+$('bulkGo').addEventListener('click',async()=>{
+  const text=$('bulkText').value.trim(); if(!text){setS($('dStatus'),'Paste some rows.',true);return}
+  const r=await post('/api/admin/distributors/bulk',{text});
+  if(!r.ok){setS($('dStatus'),r.error||'Failed.',true);return}
+  setS($('dStatus'),`Imported: ${r.added} added, ${r.updated} updated, ${r.skipped} skipped.`,false,true);
+  $('bulkText').value=''; loadDistributors();
+});
+
+// ================= HISTORY =================
+async function loadHistory(email){
+  $('histBack').style.display = email ? 'inline-block' : 'none';
+  $('histTitle').textContent = email ? ('History — '+email) : 'Search history (all users)';
+  const q = email ? ('?email='+encodeURIComponent(email)+'&limit=500') : '?limit=500';
+  const d=await get('/api/admin/history'+q); if(!d.ok)return;
+  $('histMeta').textContent = d.total+' searches'+(email?' by this user':'');
+  $('hRows').innerHTML = d.items.map(x=>`<tr>
+    <td class="small">${fmtTime(x.at)}</td>
+    <td><span class="drill" data-user="${esc(x.email||'')}">${esc(x.email||'—')}</span></td>
+    <td>${esc((x.track&&x.track.name)||'—')}<div class="small">${esc((x.track&&x.track.artist)||'')}</div></td>
+    <td>${x.found?esc(x.distributor):'<span class="small">not found</span>'}</td>
+  </tr>`).join('') || '<tr><td colspan="4" class="small">No searches yet.</td></tr>';
+  $('hRows').querySelectorAll('.drill').forEach(s=>s.addEventListener('click',()=>{if(s.dataset.user)loadHistory(s.dataset.user)}));
+}
+$('histBack').addEventListener('click',e=>{e.preventDefault();loadHistory(null)});
+
+$('logout').addEventListener('click',async e=>{e.preventDefault();await post('/api/logout',{});location.href='/login'});
+get('/api/admin/stats').then(d=>{if(d.ok)$('stats').textContent=d.count+' distributors in the reference set.'});
+loadPeople();
+</script>
+</body>
+</html>
