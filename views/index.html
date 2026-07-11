@@ -27,13 +27,13 @@
 <div class="wrap">
   <div class="head">
     <h1>Distributor Lookup</h1>
-    <div class="sub">Paste a track link to see its distributor, release date and more.</div>
+    <div class="sub">Paste a track <b>or album</b> link to see its distributor, release date and more.</div>
   </div>
 
   <div class="card">
-    <label class="field" for="url">Track link</label>
+    <label class="field" for="url">Track or album link</label>
     <div class="row">
-      <input id="url" type="text" dir="ltr" placeholder="https://open.spotify.com/track/..."/>
+      <input id="url" type="text" dir="ltr" placeholder="https://open.spotify.com/track/... or /album/..."/>
       <button id="go">Look up</button>
     </div>
     <div class="status" id="status"></div>
@@ -70,8 +70,8 @@ function render(d){
 
   // codes cells only if allowed
   const codes = PERMS.seeCodes
-    ? `<div class="cell"><div class="k">UPC</div>${chip(t.upc)}</div>
-       <div class="cell"><div class="k">ISRC</div>${chip(t.isrc)}</div>` : '';
+    ? `<div class="cell"><div class="k">UPC</div>${chip(t.upc)}</div>`
+      + (t.isAlbum ? '' : `<div class="cell"><div class="k">ISRC</div>${chip(t.isrc)}</div>`) : '';
 
   const dl = (PERMS.downloadCover && t.coverFile)
     ? `<button class="ghost dlbtn" data-file="${esc(t.coverFile)}" style="margin-top:12px">Download cover</button>` : '';
@@ -133,6 +133,12 @@ fetch('/api/me').then(r=>r.json()).then(d=>{
   if(!d.ok)return;
   $('who').textContent=d.email;
   if(d.perms)PERMS=d.perms;
+  // hide tools the user isn't allowed to use
+  const toolByHref={'/copyright':'copyright','/youtube-owner':'youtube_owner','/yt-distributor':'yt_distributor'};
+  document.querySelectorAll('.nav a[href]').forEach(a=>{
+    const t=toolByHref[a.getAttribute('href')];
+    if(t&&d.perms&&d.perms.tools&&d.perms.tools[t]==='off')a.style.display='none';
+  });
   if(d.role==='admin'){
     $('adminLink').style.display='';
     $('advWrap').style.display='';

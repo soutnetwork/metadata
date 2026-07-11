@@ -267,34 +267,85 @@ async function loadPending(){
 get('/api/admin/pending').then(d=>{if(d.ok&&d.count>0){const b=$('pendBadge');b.style.display='';b.textContent=d.count}});
 
 // ================= PEOPLE =================
+const TOOLS=[['spotify','Spotify'],['copyright','Copyright'],['youtube_owner','YT Owner'],['yt_distributor','YT Distributor']];
+function toolVal(u,k){return (u.perms&&u.perms.tools&&u.perms.tools[k]!==undefined)?u.perms.tools[k]:'open';}
+function settingText(v){if(v==='off')return 'off';if(v==='open'||v===undefined)return 'open';return v+'/day';}
 async function loadPeople(){
   const d=await get('/api/admin/users'); if(!d.ok)return;
   const rows=[];
   for(const u of d.users){
     const isMe=u.email===meEmail;
-    const perm = u.role==='admin'
-      ? '<span class="small">full (admin)</span>'
-      : `<div class="toggle-cell">
-           <label class="sw"><input type="checkbox" data-email="${esc(u.email)}" data-perm="seeCodes" ${u.perms.seeCodes?'checked':''}/> codes</label>
-           <label class="sw"><input type="checkbox" data-email="${esc(u.email)}" data-perm="downloadCover" ${u.perms.downloadCover?'checked':''}/> cover</label>
-         </div>`;
+    const eid=esc(u.email);
     const last = u.lastLogin ? `${fmtTime(u.lastLogin.at)}<div class="small">${esc(u.lastLogin.ip||'')}</div>` : '<span class="small">never</span>';
+    if(u.role==='admin'){
+      rows.push(`<tr>
+        <td><span class="drill" data-user="${eid}">${eid}</span></td>
+        <td><span class="badge admin">admin</span></td>
+        <td class="small">full access</td>
+        <td>${last}</td>
+        <td style="text-align:right">${isMe?'<span class="small">you</span>':`<button class="danger" data-remove="${eid}">Remove</button>`}</td>
+      </tr>`);
+      continue;
+    }
+    const summary = TOOLS.map(([k,l])=>`${l}: <b>${settingText(toolVal(u,k))}</b>`).join(' &middot; ');
+    const toolCtrls = TOOLS.map(([k,l])=>{
+      const v=toolVal(u,k);
+      const mode=(v==='off')?'off':((v==='open'||v===undefined)?'open':'limit');
+      const num=(mode==='limit')?v:'';
+      return `<div style="display:flex;align-items:center;gap:6px;margin:4px 0">
+        <span style="width:120px;font-size:13px">${l}</span>
+        <select data-tool="${k}" style="max-width:130px">
+          <option value="open"${mode==='open'?' selected':''}>Open</option>
+          <option value="off"${mode==='off'?' selected':''}>Off</option>
+          <option value="limit"${mode==='limit'?' selected':''}>Limit/day</option>
+        </select>
+        <input type="number" min="1" data-limit="${k}" value="${num}" placeholder="e.g. 5" style="width:90px;${mode==='limit'?'':'display:none'}"/>
+      </div>`;
+    }).join('');
     rows.push(`<tr>
-      <td><span class="drill" data-user="${esc(u.email)}">${esc(u.email)}</span>${u.locked?' <span class="badge pending">locked</span>':''}</td>
-      <td><span class="badge ${u.role}">${u.role}</span></td>
-      <td>${perm}</td>
+      <td><span class="drill" data-user="${eid}">${eid}</span>${u.locked?' <span class="badge pending">locked</span>':''}</td>
+      <td><span class="badge user">user</span></td>
+      <td class="small" style="max-width:300px">${summary}</td>
       <td>${last}</td>
-      <td style="text-align:right">${isMe?'<span class="small">you</span>':`<button class="danger" data-remove="${esc(u.email)}">Remove</button>`}</td>
-    </tr>`);
+      <td style="text-align:right"><button class="ghost" data-access="${eid}">Access</button> ${isMe?'':`<button class="danger" data-remove="${eid}">Remove</button>`}</td>
+    </tr>
+    <tr class="editor" style="display:none"><td colspan="5" style="background:#fafafa">
+      <div style="padding:8px 2px">
+        <div class="toggle-cell" style="margin-bottom:10px">
+          <label class="sw"><input type="checkbox" data-ed="seeCodes" ${u.perms.seeCodes!==false?'checked':''}/> can see UPC/ISRC</label>
+          <label class="sw"><input type="checkbox" data-ed="downloadCover" ${u.perms.downloadCover!==false?'checked':''}/> can download cover</label>
+        </div>
+        ${toolCtrls}
+        <button data-save="${eid}" style="margin-top:10px">Save access</button>
+        <span class="status" data-st style="display:inline-block;margin-left:10px"></span>
+      </div>
+    </td></tr>`);
   }
   for(const i of d.invites){
-    rows.push(`<tr><td>${esc(i.email)}</td><td><span class="badge ${i.role}">${i.role}</span></td><td class="small">—</td><td><span class="badge pending">invite pending</span></td><td></td></tr>`);
+    rows.push(`<tr><td>${esc(i.email)}</td><td><span class="badge ${i.role}">${i.role}</span></td><td class="small">&mdash;</td><td><span class="badge pending">invite pending</span></td><td></td></tr>`);
   }
   $('rows').innerHTML=rows.join('')||'<tr><td colspan="5" class="small">No one yet.</td></tr>';
-  $('rows').querySelectorAll('input[data-perm]').forEach(cb=>cb.addEventListener('change',async()=>{
-    const perms={}; perms[cb.dataset.perm]=cb.checked;
-    const r=await post('/api/admin/permissions',{email:cb.dataset.email,perms});
-    if(!r.ok){alert(r.error||'Failed');cb.checked=!cb.checked}
+  $('rows').querySelectorAll('button[data-access]').forEach(b=>b.addEventListener('click',()=>{
+    const ed=b.closest('tr').nextElementSibling;
+    if(ed&&ed.classList.contains('editor'))ed.style.display=ed.style.display==='none'?'table-row':'none';
+  }));
+  $('rows').querySelectorAll('select[data-tool]').forEach(sel=>sel.addEventListener('change',()=>{
+    const inp=sel.parentElement.querySelector('input[data-limit]');
+    inp.style.display=sel.value==='limit'?'':'none';
+  }));
+  $('rows').querySelectorAll('button[data-save]').forEach(b=>b.addEventListener('click',async()=>{
+    const box=b.closest('.editor');
+    const tools={};
+    box.querySelectorAll('select[data-tool]').forEach(sel=>{
+      const k=sel.dataset.tool,mode=sel.value;
+      if(mode==='off')tools[k]='off';
+      else if(mode==='limit'){const n=parseInt(box.querySelector('input[data-limit="'+k+'"]').value,10);tools[k]=(n&&n>0)?n:'open';}
+      else tools[k]='open';
+    });
+    const perms={seeCodes:box.querySelector('input[data-ed="seeCodes"]').checked,downloadCover:box.querySelector('input[data-ed="downloadCover"]').checked,tools};
+    const st=box.querySelector('[data-st]');st.textContent='Saving…';st.className='status';
+    const r=await post('/api/admin/permissions',{email:b.dataset.save,perms});
+    if(r.ok){st.textContent='Saved';st.className='status ok';setTimeout(loadPeople,700);}else{st.textContent=r.error||'Failed';st.className='status err';}
   }));
   $('rows').querySelectorAll('button[data-remove]').forEach(b=>b.addEventListener('click',async()=>{
     if(!confirm('Remove '+b.dataset.remove+'?'))return;
@@ -305,6 +356,7 @@ async function loadPeople(){
     loadHistory(s.dataset.user);
   }));
 }
+
 $('invGo').addEventListener('click',async()=>{
   const email=$('invEmail').value.trim(), role=$('invRole').value;
   const perms={seeCodes:$('invSeeCodes').checked,downloadCover:$('invDownload').checked};
@@ -330,8 +382,15 @@ function renderDist(){
     <td>${esc(x.distributor)}</td>
     <td class="mono">${esc(x.uuid)}</td>
     <td class="small">${esc((x.subLabels||[]).join(', '))}</td>
-    <td style="text-align:right"><button class="danger" data-del="${esc(x.uuid)}">Delete</button></td>
+    <td style="text-align:right"><button class="ghost" data-edit="${esc(x.uuid)}">Edit</button> <button class="danger" data-del="${esc(x.uuid)}">Delete</button></td>
   </tr>`).join('') || '<tr><td colspan="4" class="small">No matches.</td></tr>';
+  $('dRows').querySelectorAll('button[data-edit]').forEach(b=>b.addEventListener('click',async()=>{
+    const x=allDist.find(d=>d.uuid===b.dataset.edit); if(!x)return;
+    const name=prompt('Distributor name:',x.distributor); if(name===null)return;
+    const notes=prompt('Sub-labels (comma separated, leave empty for none):',(x.subLabels||[]).join(', ')); if(notes===null)return;
+    const r=await post('/api/admin/distributors/update',{uuid:x.uuid,distributor:name.trim(),notes:notes.trim()});
+    if(r.ok)loadDistributors();else alert(r.error||'Failed');
+  }));
   $('dRows').querySelectorAll('button[data-del]').forEach(b=>b.addEventListener('click',async()=>{
     if(!confirm('Delete this distributor?'))return;
     const r=await post('/api/admin/distributors/delete',{uuid:b.dataset.del}); if(r.ok)loadDistributors();else alert(r.error||'Failed');

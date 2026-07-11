@@ -65,6 +65,13 @@ function buildNav(){
   $('logout').addEventListener('click',async e=>{e.preventDefault();await post('/api/logout');location.href='/login'});
   // highlight current
   document.querySelectorAll('#nav a').forEach(a=>{ if(a.getAttribute('href')===PATH) a.style.color='var(--ink)'; });
+  // hide tools this user can't use
+  const toolByHref={'/copyright':'copyright','/youtube-owner':'youtube_owner','/yt-distributor':'yt_distributor'};
+  const tools=(ME.perms&&ME.perms.tools)||{};
+  document.querySelectorAll('#nav a[href]').forEach(a=>{
+    const t=toolByHref[a.getAttribute('href')];
+    if(t&&tools[t]==='off')a.style.display='none';
+  });
 }
 
 function fieldsText(svc,t){
@@ -112,6 +119,8 @@ async function submit(){
   if(svc.inputHint)$('input').placeholder=svc.inputHint;
   $('sub').textContent='Submit a request. Our team will get you the result — usually within '+svc.eta+'.';
   $('eta').textContent='Typical response time: '+svc.eta+'.';
+  const myTools=(ME.perms&&ME.perms.tools)||{};
+  if(myTools[TYPE]==='off'){$('input').disabled=true;$('go').disabled=true;setStatus('This tool is not available on your account.',true);}
   loadMine();
   // light auto-refresh so approvals appear without reloading
   setInterval(loadMine, 20000);
