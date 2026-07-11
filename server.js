@@ -107,6 +107,7 @@ app.post('/api/accept-invite', (req, res) => {
 app.get('/', auth.requireAuth, (req, res) => res.sendFile(view('index.html')));
 app.get('/history', auth.requireAuth, (req, res) => res.sendFile(view('myhistory.html')));
 app.get('/admin', auth.requireAdmin, (req, res) => res.sendFile(view('admin.html')));
+app.get('/scanner', auth.requireAdmin, (req, res) => res.sendFile(view('scanner.html')));
 
 // a user's own history (their searches only)
 app.get('/api/my-history', auth.requireAuth, (req, res) => {
@@ -256,13 +257,61 @@ app.get('/api/admin/history', auth.requireAdmin, (req, res) => {
 });
 app.get('/api/admin/history/stats', auth.requireAdmin, (req, res) => res.json({ ok: true, ...history.stats() }));
 
-app.get('/api/admin/stats', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.count() }));app.post('/api/admin/reload', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.reload() }));
+app.get('/api/admin/stats', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.count() }));
+
+// bulk scanner: paste many track links -> resolve UUIDs, flag known/unknown, collect unknowns
+app.post('/api/admin/scan', auth.requireAdmin, async (req, res) => {
+  let text = (req.body && req.body.text) || '';
+  let links = String(text).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  links = [...new Set(links)];
+  if (!links.length) return res.status(400).json({ ok: false, error: 'Paste some track links.' });
+  if (links.length > 30) links = links.slice(0, 30);
+
+  const results = new Array(links.length);
+  let i = 0;
+  async function worker() {
+    while (i < links.length) {
+      const idx = i++;
+      const link = links[idx];
+      try {
+        let parsed;
+        try { parsed = parseSpotifyInput(link); }
+        catch (_) { results[idx] = { input: link, ok: false, error: 'Invalid track link' }; continue; }
+        if (parsed.type !== 'track') { results[idx] = { input: link, ok: false, error: 'Not a track link' }; continue; }
+        const meta = await getTrackMetadata(parsed.gid);
+        const lk = lookupModule.lookup(meta.licensorUuid);
+        results[idx] = {
+          input: link, ok: true, uuid: meta.licensorUuid,
+          found: lk.found, distributor: lk.found ? lk.distributor : null,
+          track: { name: meta.name, artist: meta.artist },
+        };
+        if (!lk.found && meta.licensorUuid) {
+          pending.add({ uuid: meta.licensorUuid, track: { name: meta.name, artist: meta.artist }, url: link, email: req.user.email });
+        }
+      } catch (e) { results[idx] = { input: link, ok: false, error: friendly(e) }; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, links.length) }, worker));
+  res.json({ ok: true, results });
+});
+
+// export the whole distributor database as CSV (opens in Excel)
+app.get('/api/admin/distributors/export', auth.requireAdmin, (req, res) => {
+  const items = lookupModule.listAll();
+  const rows = [['UUID', 'Distributor', 'Sub-labels']];
+  for (const x of items) rows.push([x.uuid, x.distributor, (x.subLabels || []).join('; ')]);
+  const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="sout-distributors.csv"');
+  res.send('\uFEFF' + csv);
+});app.post('/api/admin/reload', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.reload() }));
 
 // ---- admin: manual service requests ----
 app.get('/api/admin/requests', auth.requireAdmin, (req, res) => {
   const status = req.query.status ? String(req.query.status) : null;
   const type = req.query.type ? String(req.query.type) : null;
-  res.json({ ok: true, services: requests.SERVICES, pending: requests.pendingCount(), items: requests.listAll({ status, type }) });
+  const email = req.query.email ? String(req.query.email) : null;
+  res.json({ ok: true, services: requests.SERVICES, pending: requests.pendingCount(), items: requests.listAll({ status, type, email }) });
 });
 app.post('/api/admin/requests/resolve', auth.requireAdmin, (req, res) => {
   try { const { id, fields } = req.body || {}; res.json({ ok: true, ...requests.resolve(id, fields, req.user.email) }); }
