@@ -20,6 +20,7 @@
   .small{font-size:12px;color:var(--muted)}
   .drill{cursor:pointer;color:var(--accent);font-weight:600}
   .backlink{font-size:13px;margin-bottom:10px;display:inline-block}
+  .reqFilter.active{border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -86,7 +87,13 @@
   <div class="pane" id="pane-requests">
     <div class="card">
       <h2>Service requests</h2>
-      <div class="small" style="margin-bottom:12px">Fill in the answer and approve — the user sees it immediately.</div>
+      <div class="small" style="margin-bottom:12px">Pending ones you can fill and approve. Everything ever submitted is kept here.</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button class="ghost reqFilter active" data-status="pending">Pending</button>
+        <button class="ghost reqFilter" data-status="">All</button>
+        <button class="ghost reqFilter" data-status="approved">Approved</button>
+        <button class="ghost reqFilter" data-status="rejected">Rejected</button>
+      </div>
       <div id="reqList"><div class="small">Loading…</div></div>
     </div>
   </div>
@@ -158,20 +165,33 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
 
 // ================= REQUESTS =================
 let SERVICES={};
+let reqStatus='pending';
+function reqFieldsView(svc,t){
+  return svc.fields.map(f=>`<b>${esc(f.label)}:</b> ${esc((t.fields&&t.fields[f.key])||'—')}`).join('<br>');
+}
 async function loadRequests(){
-  const d=await get('/api/admin/requests?status=pending'); if(!d.ok)return;
+  const q = reqStatus ? ('?status='+reqStatus) : '';
+  const d=await get('/api/admin/requests'+q); if(!d.ok)return;
   SERVICES=d.services||{};
   const badge=$('reqBadge');
   if(d.pending>0){badge.style.display='';badge.textContent=d.pending}else{badge.style.display='none'}
-  if(!d.items.length){$('reqList').innerHTML='<div class="small">No pending requests. 🎉</div>';return}
+  if(!d.items.length){$('reqList').innerHTML='<div class="small">Nothing here.</div>';return}
   $('reqList').innerHTML=d.items.map(t=>{
     const svc=SERVICES[t.type]||{title:t.type,fields:[]};
-    const inputs=svc.fields.map(f=>`<div style="flex:1;min-width:150px"><div class="k" style="font-size:11px;color:var(--muted);margin-bottom:4px">${esc(f.label)}</div><input type="text" data-field="${esc(f.key)}" placeholder="${esc(f.label)}"/></div>`).join('');
-    return `<div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px" data-id="${esc(t.id)}">
-      <div style="margin-bottom:6px"><span class="badge admin">${esc(svc.title)}</span> <span class="small">${esc(t.email||'')} • ${fmtTime(t.createdAt)}</span></div>
-      <a href="${esc(t.input)}" target="_blank" class="mono" style="font-size:12px;word-break:break-all">${esc(t.input)}</a>
-      <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px">${inputs}</div>
-      <div style="margin-top:10px"><button data-approve="${esc(t.id)}">Approve &amp; send</button> <button class="danger" data-reject="${esc(t.id)}">Reject</button></div>
+    const header=`<div style="margin-bottom:6px"><span class="badge admin">${esc(svc.title)}</span> <span class="small">${esc(t.email||'')} • ${fmtTime(t.createdAt)}</span> ${statusBadge(t.status)}</div>`;
+    const link=`<a href="${esc(t.input)}" target="_blank" class="mono" style="font-size:12px;word-break:break-all">${esc(t.input)}</a>`;
+    if(t.status==='pending'){
+      const inputs=svc.fields.map(f=>`<div style="flex:1;min-width:150px"><div class="k" style="font-size:11px;color:var(--muted);margin-bottom:4px">${esc(f.label)}</div><input type="text" data-field="${esc(f.key)}" placeholder="${esc(f.label)}"/></div>`).join('');
+      return `<div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px" data-id="${esc(t.id)}">
+        ${header}${link}
+        <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px">${inputs}</div>
+        <div style="margin-top:10px"><button data-approve="${esc(t.id)}">Approve &amp; send</button> <button class="danger" data-reject="${esc(t.id)}">Reject</button></div>
+      </div>`;
+    }
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px">
+      ${header}${link}
+      <div class="small" style="margin-top:8px">${reqFieldsView(svc,t)}</div>
+      ${t.resolvedBy?`<div class="small" style="margin-top:6px;color:var(--muted)">by ${esc(t.resolvedBy)} • ${fmtTime(t.resolvedAt)}</div>`:''}
     </div>`;
   }).join('');
   $('reqList').querySelectorAll('button[data-approve]').forEach(b=>b.addEventListener('click',async()=>{
@@ -186,6 +206,15 @@ async function loadRequests(){
     if(r.ok)loadRequests();else alert(r.error||'Failed');
   }));
 }
+function statusBadge(s){
+  if(s==='approved')return '<span class="badge" style="background:#dcfce7;color:#15803d">approved</span>';
+  if(s==='rejected')return '<span class="badge" style="background:#fee2e2;color:#b91c1c">rejected</span>';
+  return '<span class="badge pending">pending</span>';
+}
+document.querySelectorAll('.reqFilter').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.reqFilter').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); reqStatus=b.dataset.status; loadRequests();
+}));
 get('/api/admin/requests?status=pending').then(d=>{if(d.ok&&d.pending>0){const b=$('reqBadge');b.style.display='';b.textContent=d.pending}});
 
 // ================= PENDING =================
