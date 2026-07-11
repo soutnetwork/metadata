@@ -24,7 +24,7 @@
 </head>
 <body>
 <div class="topbar">
-  <div class="brand"><img src="/assets/logo.svg" class="logo" alt=""/><span><small>Sout Network</small>Admin</span></div>
+  <div class="brand"><img src="/assets/logo-icon.png" class="logo" alt=""/><span><small>Sout Network</small>Admin</span></div>
   <div class="nav">
     <span class="who" id="who"></span>
     <a href="/">Lookup</a>
@@ -36,6 +36,7 @@
   <div class="tabs">
     <div class="tab active" data-pane="people">People</div>
     <div class="tab" data-pane="pending">Pending <span id="pendBadge" class="badge pending" style="display:none">0</span></div>
+    <div class="tab" data-pane="requests">Requests <span id="reqBadge" class="badge pending" style="display:none">0</span></div>
     <div class="tab" data-pane="distributors">Distributors</div>
     <div class="tab" data-pane="history">Search history</div>
   </div>
@@ -78,6 +79,15 @@
         <thead><tr><th>Code</th><th>Example track</th><th>Times seen</th><th></th></tr></thead>
         <tbody id="pRows"><tr><td colspan="4" class="small">Loading…</td></tr></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- ===== REQUESTS ===== -->
+  <div class="pane" id="pane-requests">
+    <div class="card">
+      <h2>Service requests</h2>
+      <div class="small" style="margin-bottom:12px">Fill in the answer and approve — the user sees it immediately.</div>
+      <div id="reqList"><div class="small">Loading…</div></div>
     </div>
   </div>
 
@@ -143,7 +153,40 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   if(t.dataset.pane==='distributors')loadDistributors();
   if(t.dataset.pane==='history')loadHistory(null);
   if(t.dataset.pane==='pending')loadPending();
+  if(t.dataset.pane==='requests')loadRequests();
 }));
+
+// ================= REQUESTS =================
+let SERVICES={};
+async function loadRequests(){
+  const d=await get('/api/admin/requests?status=pending'); if(!d.ok)return;
+  SERVICES=d.services||{};
+  const badge=$('reqBadge');
+  if(d.pending>0){badge.style.display='';badge.textContent=d.pending}else{badge.style.display='none'}
+  if(!d.items.length){$('reqList').innerHTML='<div class="small">No pending requests. 🎉</div>';return}
+  $('reqList').innerHTML=d.items.map(t=>{
+    const svc=SERVICES[t.type]||{title:t.type,fields:[]};
+    const inputs=svc.fields.map(f=>`<div style="flex:1;min-width:150px"><div class="k" style="font-size:11px;color:var(--muted);margin-bottom:4px">${esc(f.label)}</div><input type="text" data-field="${esc(f.key)}" placeholder="${esc(f.label)}"/></div>`).join('');
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px" data-id="${esc(t.id)}">
+      <div style="margin-bottom:6px"><span class="badge admin">${esc(svc.title)}</span> <span class="small">${esc(t.email||'')} • ${fmtTime(t.createdAt)}</span></div>
+      <a href="${esc(t.input)}" target="_blank" class="mono" style="font-size:12px;word-break:break-all">${esc(t.input)}</a>
+      <div class="row" style="flex-wrap:wrap;gap:10px;margin-top:10px">${inputs}</div>
+      <div style="margin-top:10px"><button data-approve="${esc(t.id)}">Approve &amp; send</button> <button class="danger" data-reject="${esc(t.id)}">Reject</button></div>
+    </div>`;
+  }).join('');
+  $('reqList').querySelectorAll('button[data-approve]').forEach(b=>b.addEventListener('click',async()=>{
+    const box=b.closest('[data-id]');const fields={};
+    box.querySelectorAll('input[data-field]').forEach(inp=>fields[inp.dataset.field]=inp.value.trim());
+    const r=await post('/api/admin/requests/resolve',{id:b.dataset.approve,fields});
+    if(r.ok)loadRequests();else alert(r.error||'Failed');
+  }));
+  $('reqList').querySelectorAll('button[data-reject]').forEach(b=>b.addEventListener('click',async()=>{
+    if(!confirm('Reject this request?'))return;
+    const r=await post('/api/admin/requests/reject',{id:b.dataset.reject});
+    if(r.ok)loadRequests();else alert(r.error||'Failed');
+  }));
+}
+get('/api/admin/requests?status=pending').then(d=>{if(d.ok&&d.pending>0){const b=$('reqBadge');b.style.display='';b.textContent=d.pending}});
 
 // ================= PENDING =================
 async function loadPending(){

@@ -22,7 +22,7 @@ a:hover{text-decoration:underline}
 .topbar .brand{font-weight:700;font-size:15px;display:flex;align-items:center;gap:10px}
 .logo{width:26px;height:26px;flex:0 0 auto}
 .head-logo{display:flex;justify-content:center;margin-bottom:10px}
-.head-logo img{width:40px;height:40px}
+.head-logo img{height:34px;width:auto;max-width:220px}
 .topbar .brand small{color:var(--accent);font-weight:600;font-size:11px;letter-spacing:.04em;
   text-transform:uppercase;display:block}
 .topbar .nav{display:flex;align-items:center;gap:16px;font-size:13px}

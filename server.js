@@ -8,6 +8,7 @@ const { getTrackMetadata, normalizeTrack } = require('./src/spotify');
 const lookupModule = require('./src/lookup');
 const history = require('./src/history');
 const pending = require('./src/pending');
+const requests = require('./src/requests');
 const auth = require('./src/auth');
 
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', (e && e.message) || e));
@@ -111,6 +112,27 @@ app.get('/admin', auth.requireAdmin, (req, res) => res.sendFile(view('admin.html
 app.get('/api/my-history', auth.requireAuth, (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
   res.json({ ok: true, ...history.list({ email: req.user.email, limit }) });
+});
+
+// ---- manual services (copyright / youtube owner / yt->distributor) ----
+const SERVICE_ROUTES = { '/copyright': 'copyright', '/youtube-owner': 'youtube_owner', '/yt-distributor': 'yt_distributor' };
+for (const route of Object.keys(SERVICE_ROUTES)) {
+  app.get(route, auth.requireAuth, (req, res) => res.sendFile(view('service.html')));
+}
+
+app.get('/api/services', auth.requireAuth, (req, res) => res.json({ ok: true, services: requests.SERVICES }));
+
+app.post('/api/request', auth.requireAuth, (req, res) => {
+  try {
+    const { type, input } = req.body || {};
+    const t = requests.create({ type, input, email: req.user.email });
+    res.json({ ok: true, id: t.id });
+  } catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+
+app.get('/api/my-requests', auth.requireAuth, (req, res) => {
+  const type = req.query.type ? String(req.query.type) : null;
+  res.json({ ok: true, items: requests.listByUser(req.user.email, type) });
 });
 
 // ===================== TOOL API =====================
@@ -234,8 +256,22 @@ app.get('/api/admin/history', auth.requireAdmin, (req, res) => {
 });
 app.get('/api/admin/history/stats', auth.requireAdmin, (req, res) => res.json({ ok: true, ...history.stats() }));
 
-app.get('/api/admin/stats', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.count() }));
-app.post('/api/admin/reload', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.reload() }));
+app.get('/api/admin/stats', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.count() }));app.post('/api/admin/reload', auth.requireAdmin, (req, res) => res.json({ ok: true, count: lookupModule.reload() }));
+
+// ---- admin: manual service requests ----
+app.get('/api/admin/requests', auth.requireAdmin, (req, res) => {
+  const status = req.query.status ? String(req.query.status) : null;
+  const type = req.query.type ? String(req.query.type) : null;
+  res.json({ ok: true, services: requests.SERVICES, pending: requests.pendingCount(), items: requests.listAll({ status, type }) });
+});
+app.post('/api/admin/requests/resolve', auth.requireAdmin, (req, res) => {
+  try { const { id, fields } = req.body || {}; res.json({ ok: true, ...requests.resolve(id, fields, req.user.email) }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
+app.post('/api/admin/requests/reject', auth.requireAdmin, (req, res) => {
+  try { res.json({ ok: true, ...requests.reject((req.body || {}).id, req.user.email) }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
+});
 
 function friendly(e) {
   const code = e && e.code; const msg = (e && e.message) || '';
