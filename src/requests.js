@@ -20,7 +20,8 @@ const SERVICES = {
     title: 'YouTube Channel Owner',
     inputLabel: 'YouTube channel link',
     fields: [
-      { key: 'owner', label: 'Owner (CMS & MCN) email' },
+      { key: 'owner', label: 'Owner (CMS & MCN)' },
+      { key: 'email', label: 'Owner email' },
     ],
     eta: '1–20 minutes',
   },
